@@ -1,7 +1,10 @@
 from typing import TypedDict, List, Dict, Any
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
+
+from app.agent.schemas import LogInteractionExtraction
+from app.agent.db import find_hcps_by_name
 
 # 1. State Definition
 class AgentState(TypedDict):
@@ -13,7 +16,62 @@ class AgentState(TypedDict):
 
 # 2. Tool Nodes (Stubs)
 def log_interaction(state: AgentState) -> AgentState:
-    print("Calling log_interaction tool... (not implemented yet)")
+    print("Executing log_interaction tool...")
+    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    extractor = llm.with_structured_output(LogInteractionExtraction)
+    
+    last_message = state["messages"][-1].content if state["messages"] else ""
+    if not last_message:
+        return state
+        
+    extracted: LogInteractionExtraction = extractor.invoke(last_message)
+    
+    # Check DB for HCP
+    hcp_id = None
+    if extracted.hcp_name:
+        matches = find_hcps_by_name(extracted.hcp_name)
+        if len(matches) == 1:
+            hcp_id = matches[0]["id"]
+        elif len(matches) > 1:
+            # Ambiguous match, do not patch form.
+            clarification = f"I found multiple HCPs named {extracted.hcp_name} ("
+            clarification += ", ".join([f"{m['specialty']}" for m in matches])
+            clarification += "). Which one did you meet?"
+            
+            state["active_hcp_candidates"] = matches
+            state["messages"].append(AIMessage(content=clarification))
+            return state
+            
+    # Write patch
+    form = state.get("interaction_form", {})
+    if hcp_id:
+        form["hcp_id"] = hcp_id
+    if extracted.interaction_type:
+        form["interaction_type"] = extracted.interaction_type
+    if extracted.date:
+        form["date"] = extracted.date
+    if extracted.time:
+        form["time"] = extracted.time
+    if extracted.attendees:
+        form["attendees"] = extracted.attendees
+    if extracted.topics_discussed:
+        form["topics_discussed"] = extracted.topics_discussed
+    if extracted.sentiment:
+        form["sentiment"] = extracted.sentiment
+    if extracted.materials_shared:
+        form["materials_shared"] = extracted.materials_shared
+    if extracted.samples_distributed:
+        form["samples_distributed"] = extracted.samples_distributed
+        
+    state["interaction_form"] = form
+    
+    # Add a tool trace
+    state.setdefault("tool_trace", []).append({
+        "tool_name": "log_interaction",
+        "output": extracted.model_dump(),
+        "after_state": form.copy()
+    })
+    
     return state
 
 def edit_interaction(state: AgentState) -> AgentState:
@@ -47,7 +105,7 @@ def router(state: AgentState) -> AgentState:
         # Very crude placeholder - will be refined
         escalate = True
 
-    model_used = "llama-3.3-70b-versatile" if escalate else "gemma2-9b-it"
+    model_used = "llama-3.3-70b-versatile" if escalate else "llama-3.1-8b-instant"
     llm = ChatGroq(model_name=model_used)
     
     # We would bind our tools here: llm_with_tools = llm.bind_tools([...])
