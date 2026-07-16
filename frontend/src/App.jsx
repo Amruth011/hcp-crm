@@ -630,7 +630,20 @@ function App() {
                 <ul className="suggested-followups-list">
                   {interaction.suggested_follow_ups && interaction.suggested_follow_ups.length > 0 ? (
                     interaction.suggested_follow_ups.map((action, idx) => (
-                      <li key={idx}>{action}</li>
+                      <li
+                        key={idx}
+                        onClick={() => {
+                          const currentActions = interaction.follow_up_actions || '';
+                          const newActions = currentActions
+                            ? `${currentActions}\n- ${action}`
+                            : `- ${action}`;
+                          dispatch(patchInteraction({ follow_up_actions: newActions }));
+                        }}
+                        style={{ cursor: 'pointer' }}
+                        title="Click to add to Follow-up Actions"
+                      >
+                        {action}
+                      </li>
                     ))
                   ) : (
                     <li className="no-suggestions">No suggestions yet. Log topics and outcomes to get suggestions.</li>

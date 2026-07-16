@@ -1,3 +1,5 @@
+import re
+import json
 from typing import TypedDict, List, Dict, Any
 from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
@@ -5,6 +7,66 @@ from langchain_groq import ChatGroq
 
 from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction, HistoryQueryExtraction, RouterDecision
 from app.agent.db import find_hcps_by_name, get_past_interactions, log_tool_call
+
+def extract_json_from_failed_generation(failed_gen: str):
+    # Pattern to match <function=TagName>JSON_CONTENT<function> or <function=TagName>JSON_CONTENT
+    match = re.search(r'<function=[^>]+>(.*?)(?:<function>|$)', failed_gen, re.DOTALL)
+    if match:
+        content = match.group(1).strip()
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+            
+    # Fallback to general JSON extraction
+    match_json = re.search(r'(\{.*\})', failed_gen, re.DOTALL)
+    if match_json:
+        content = match_json.group(1).strip()
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+    return None
+
+def safe_invoke_extractor(extractor, prompt, schema_class):
+    try:
+        return extractor.invoke(prompt)
+    except Exception as e:
+        # Traverse the exception chain (e.g., __cause__ or __context__) to find the BadRequestError
+        current_err = e
+        while current_err is not None:
+            if hasattr(current_err, "body") and isinstance(current_err.body, dict):
+                error_data = current_err.body.get("error", {})
+                if isinstance(error_data, dict):
+                    failed_gen = error_data.get("failed_generation")
+                    if failed_gen:
+                        parsed_dict = extract_json_from_failed_generation(failed_gen)
+                        if parsed_dict:
+                            try:
+                                return schema_class.model_validate(parsed_dict)
+                            except Exception:
+                                pass
+            
+            err_str = str(current_err)
+            if "failed_generation" in err_str:
+                match = re.search(r"'failed_generation':\s*['\"](.*?)['\"]", err_str)
+                if match:
+                    failed_gen = match.group(1)
+                    parsed_dict = extract_json_from_failed_generation(failed_gen)
+                    if parsed_dict:
+                        try:
+                            return schema_class.model_validate(parsed_dict)
+                        except Exception:
+                            pass
+            
+            if hasattr(current_err, "__cause__") and current_err.__cause__ is not None:
+                current_err = current_err.__cause__
+            elif hasattr(current_err, "__context__") and current_err.__context__ is not None:
+                current_err = current_err.__context__
+            else:
+                current_err = None
+                
+        raise e
 
 # 1. State Definition
 class AgentState(TypedDict):
@@ -30,7 +92,7 @@ def log_interaction(state: AgentState) -> AgentState:
         return state
         
     prompt = f"Extract interaction details from the user's narration. Do not guess any fields not mentioned in the text. Omit missing fields (like time) or return empty lists [] for list fields.\n\nUser narration: {last_message}"
-    extracted: LogInteractionExtraction = extractor.invoke(prompt)
+    extracted: LogInteractionExtraction = safe_invoke_extractor(extractor, prompt, LogInteractionExtraction)
     
     # Check DB for HCP
     hcp_id = None
@@ -127,7 +189,7 @@ def edit_interaction(state: AgentState) -> AgentState:
     # Provide the current state to the LLM so it knows what it's editing
     prompt = f"Current form state: {before_state}\n\nUser request: {last_message}\n\nExtract ONLY the fields the user explicitly wants to change."
     
-    extracted: EditInteractionExtraction = extractor.invoke(prompt)
+    extracted: EditInteractionExtraction = safe_invoke_extractor(extractor, prompt, EditInteractionExtraction)
     
     # Check DB for HCP if it was changed
     hcp_id = None
@@ -229,7 +291,7 @@ def check_compliance(state: AgentState) -> AgentState:
     extractor = llm.with_structured_output(ComplianceExtraction)
     
     prompt = f"Analyze the following interaction details for off-label claims, exaggerated efficacy, or compliance risks.\nTopics: {topics}\nOutcomes: {outcomes}"
-    extracted: ComplianceExtraction = extractor.invoke(prompt)
+    extracted: ComplianceExtraction = safe_invoke_extractor(extractor, prompt, ComplianceExtraction)
     
     # Write patch
     new_form = form.copy()
@@ -290,7 +352,7 @@ def suggest_next_action(state: AgentState) -> AgentState:
     if past_interactions:
         prompt += f"\nPast Interactions Context:\n{past_interactions}\n"
         
-    extracted: NextActionExtraction = extractor.invoke(prompt)
+    extracted: NextActionExtraction = safe_invoke_extractor(extractor, prompt, NextActionExtraction)
     
     # Write patch
     new_form = form.copy()
@@ -354,7 +416,7 @@ def retrieve_interaction_history(state: AgentState) -> AgentState:
     extractor = llm.with_structured_output(HistoryQueryExtraction)
     
     prompt = f"User is asking about past interactions. Extract the HCP name they are asking about.\nUser query: {last_message}"
-    extracted: HistoryQueryExtraction = extractor.invoke(prompt)
+    extracted: HistoryQueryExtraction = safe_invoke_extractor(extractor, prompt, HistoryQueryExtraction)
     
     if extracted.hcp_name:
         matches = find_hcps_by_name(extracted.hcp_name)
@@ -397,7 +459,8 @@ def router(state: AgentState) -> AgentState:
     print("Executing router node...")
     
     # We always start by trying the smaller, faster model
-    model_used = "llama-3.1-8b-instant"
+    # Use the more reliable larger model to avoid tool-use formatting errors on Groq
+    model_used = "llama-3.3-70b-versatile"
     llm = ChatGroq(model_name=model_used)
     extractor = llm.with_structured_output(RouterDecision)
     
@@ -411,7 +474,7 @@ def router(state: AgentState) -> AgentState:
     prompt += "- retrieve_interaction_history: The user is asking about past discussions.\n"
     prompt += "- compose_response: The user is just chatting, asking general questions, or no other tool applies.\n"
     
-    decision: RouterDecision = extractor.invoke(prompt)
+    decision: RouterDecision = safe_invoke_extractor(extractor, prompt, RouterDecision)
     
     escalate = False
     if decision.confidence < 0.7:
@@ -424,7 +487,7 @@ def router(state: AgentState) -> AgentState:
         model_used = "llama-3.3-70b-versatile"
         llm = ChatGroq(model_name=model_used)
         extractor = llm.with_structured_output(RouterDecision)
-        decision = extractor.invoke(prompt)
+        decision = safe_invoke_extractor(extractor, prompt, RouterDecision)
         
     state["next_node"] = decision.tool_to_call
     state["confidence"] = decision.confidence
