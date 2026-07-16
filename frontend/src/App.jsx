@@ -141,7 +141,8 @@ function App() {
         content: msg.content
       }));
 
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const apiBaseUrl = import.meta.env.VITE_API_URL || (isLocalhost ? 'http://localhost:8000' : '');
       const response = await fetch(`${apiBaseUrl}/api/chat/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
