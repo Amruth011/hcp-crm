@@ -17,3 +17,23 @@ def find_hcps_by_name(name: str) -> List[Dict[str, Any]]:
             }
             for m in matches
         ]
+
+def get_past_interactions(hcp_id: int, limit: int = 3) -> List[Dict[str, Any]]:
+    """Returns a list of recent interactions for an HCP."""
+    from app.models.hcp import HCPInteraction
+    with SessionLocal() as db:
+        interactions = db.query(HCPInteraction)\
+            .filter(HCPInteraction.hcp_id == hcp_id)\
+            .order_by(HCPInteraction.created_at.desc())\
+            .limit(limit)\
+            .all()
+            
+        return [
+            {
+                "date": i.date,
+                "type": i.interaction_type,
+                "topics": i.topics_discussed,
+                "outcomes": i.outcomes
+            }
+            for i in interactions
+        ]

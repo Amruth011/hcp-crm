@@ -3,8 +3,8 @@ from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
-from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction
-from app.agent.db import find_hcps_by_name
+from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction
+from app.agent.db import find_hcps_by_name, get_past_interactions
 
 # 1. State Definition
 class AgentState(TypedDict):
@@ -178,7 +178,46 @@ def check_compliance(state: AgentState) -> AgentState:
     return state
 
 def suggest_next_action(state: AgentState) -> AgentState:
-    print("Calling suggest_next_action tool... (not implemented yet)")
+    print("Executing suggest_next_action tool...")
+    
+    form = state.get("interaction_form", {})
+    sentiment = form.get("sentiment", "")
+    outcomes = form.get("outcomes", "")
+    hcp_id = form.get("hcp_id")
+    
+    if not outcomes:
+        # Without outcomes, we don't have enough to suggest a good next action
+        return state
+        
+    past_interactions = []
+    if hcp_id is not None:
+        past_interactions = get_past_interactions(hcp_id)
+        
+    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    extractor = llm.with_structured_output(NextActionExtraction)
+    
+    prompt = f"Based on the following interaction details, suggest 1 to 3 short, plain-language follow-up actions for the sales rep.\n\n"
+    prompt += f"Current Sentiment: {sentiment}\n"
+    prompt += f"Current Outcomes: {outcomes}\n"
+    
+    if past_interactions:
+        prompt += f"\nPast Interactions Context:\n{past_interactions}\n"
+        
+    extracted: NextActionExtraction = extractor.invoke(prompt)
+    
+    # Write patch
+    new_form = form.copy()
+    new_form["suggested_follow_ups"] = extracted.suggested_follow_ups
+    
+    state["interaction_form"] = new_form
+    
+    # Add a tool trace
+    state.setdefault("tool_trace", []).append({
+        "tool_name": "suggest_next_action",
+        "output": extracted.model_dump(),
+        "after_state": new_form.copy()
+    })
+    
     return state
 
 def retrieve_interaction_history(state: AgentState) -> AgentState:
@@ -228,9 +267,9 @@ def build_graph():
     # Skeleton routing - everything goes to END for now until tools are wired up
     workflow.add_edge("router", END)
     workflow.add_edge("log_interaction", "check_compliance")
-    workflow.add_edge("check_compliance", END)
-    workflow.add_edge("edit_interaction", END)
+    workflow.add_edge("check_compliance", "suggest_next_action")
     workflow.add_edge("suggest_next_action", END)
+    workflow.add_edge("edit_interaction", END)
     workflow.add_edge("retrieve_interaction_history", END)
     
     return workflow.compile()

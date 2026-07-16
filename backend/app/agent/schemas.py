@@ -25,3 +25,7 @@ class EditInteractionExtraction(BaseModel):
 class ComplianceExtraction(BaseModel):
     compliance_flag: Literal["clear", "review"] = Field(description="Assess if the interaction contains off-label, exaggerated, or non-compliant claims.")
     rationale: Optional[str] = Field(None, description="One-line rationale if the flag is 'review'")
+
+class NextActionExtraction(BaseModel):
+    suggested_follow_ups: List[str] = Field(description="1-3 items of plain-language follow-up suggestions")
+
