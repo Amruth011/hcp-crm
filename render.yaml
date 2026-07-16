@@ -1,0 +1,27 @@
+services:
+  # Backend FastAPI Web Service
+  - type: web
+    name: hcp-crm-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  # Frontend React Static Site
+  - type: web
+    name: hcp-crm-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
