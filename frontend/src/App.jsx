@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { setInteraction, clearInteraction } from './features/interactionSlice';
+import { setInteraction, patchInteraction, clearInteraction } from './features/interactionSlice';
 import './App.css';
 
 // ── Lightweight markdown renderer (no external dep) ──────────────────────
@@ -78,6 +78,13 @@ function App() {
   const [changedFields, setChangedFields] = useState({});
   const [expandedTraces, setExpandedTraces] = useState(new Set());
 
+  // Voice note and consent states
+  const [hasVoiceConsent, setHasVoiceConsent] = useState(false);
+  const [voiceConsentShowing, setVoiceConsentShowing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingStatus, setRecordingStatus] = useState('');
+  const recognitionRef = useRef(null);
+
   // Scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -119,16 +126,13 @@ function App() {
     return () => clearTimeout(t);
   }, [interaction]);
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isLoading) return;
+  const sendMessage = async (messageText) => {
+    if (!messageText.trim() || isLoading) return;
 
-    const userMessage = chatInput.trim();
-    setChatInput('');
     setErrorMsg('');
     setIsLoading(true);
 
-    const updatedHistory = [...chatHistory, { role: 'user', content: userMessage }];
+    const updatedHistory = [...chatHistory, { role: 'user', content: messageText }];
     setChatHistory(updatedHistory);
 
     try {
@@ -137,11 +141,11 @@ function App() {
         content: msg.content
       }));
 
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const response = await fetch('http://localhost:8000/api/chat/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userMessage,
+          message: messageText,
           interaction_form: interaction,
           history: backendHistory,
         }),
@@ -149,27 +153,232 @@ function App() {
 
       if (!response.ok) throw new Error(`Server returned error status ${response.status}`);
 
-      const data = await response.json();
-
-      if (data.interaction_form) dispatch(setInteraction(data.interaction_form));
-
+      // Add placeholder assistant message
       setChatHistory(prev => [
         ...prev,
-        {
-          role: 'assistant',
-          content: data.chat_response || "I've updated the interaction details for you.",
-          toolTrace: data.tool_trace || []
-        }
+        { role: 'assistant', content: '', toolTrace: [] }
       ]);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep last partial line
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('data: ')) {
+            const dataStr = trimmed.slice(6).trim();
+            if (!dataStr) continue;
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.type === 'patch') {
+                dispatch(patchInteraction(data.interaction_form));
+              } else if (data.type === 'tool_trace') {
+                setChatHistory(prev => {
+                  const next = [...prev];
+                  const lastMsg = { ...next[next.length - 1] };
+                  if (lastMsg.role === 'assistant') {
+                    lastMsg.toolTrace = [
+                      ...(lastMsg.toolTrace || []),
+                      {
+                        tool_name: data.tool_name,
+                        input_data: data.input_data,
+                        output_data: data.output_data,
+                      }
+                    ];
+                    next[next.length - 1] = lastMsg;
+                  }
+                  return next;
+                });
+              } else if (data.type === 'message') {
+                setChatHistory(prev => {
+                  const next = [...prev];
+                  const lastMsg = { ...next[next.length - 1] };
+                  if (lastMsg.role === 'assistant') {
+                    lastMsg.content = data.content;
+                    next[next.length - 1] = lastMsg;
+                  }
+                  return next;
+                });
+              } else if (data.type === 'error') {
+                setErrorMsg(data.detail || 'An error occurred during streaming.');
+              }
+            } catch (err) {
+              console.error('Error parsing SSE JSON:', err);
+            }
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith('data: ')) {
+          const dataStr = trimmed.slice(6).trim();
+          if (dataStr) {
+            try {
+              const data = JSON.parse(dataStr);
+              if (data.type === 'patch') {
+                dispatch(patchInteraction(data.interaction_form));
+              } else if (data.type === 'tool_trace') {
+                setChatHistory(prev => {
+                  const next = [...prev];
+                  const lastMsg = { ...next[next.length - 1] };
+                  if (lastMsg.role === 'assistant') {
+                    lastMsg.toolTrace = [
+                      ...(lastMsg.toolTrace || []),
+                      {
+                        tool_name: data.tool_name,
+                        input_data: data.input_data,
+                        output_data: data.output_data,
+                      }
+                    ];
+                    next[next.length - 1] = lastMsg;
+                  }
+                  return next;
+                });
+              } else if (data.type === 'message') {
+                setChatHistory(prev => {
+                  const next = [...prev];
+                  const lastMsg = { ...next[next.length - 1] };
+                  if (lastMsg.role === 'assistant') {
+                    lastMsg.content = data.content;
+                    next[next.length - 1] = lastMsg;
+                  }
+                  return next;
+                });
+              } else if (data.type === 'error') {
+                setErrorMsg(data.detail || 'An error occurred during streaming.');
+              }
+            } catch (err) {
+              console.error('Error parsing trailing buffer:', err);
+            }
+          }
+        }
+      }
+
+      setChatHistory(prev => {
+        const next = [...prev];
+        const lastMsg = { ...next[next.length - 1] };
+        if (lastMsg.role === 'assistant' && !lastMsg.content) {
+          lastMsg.content = "I've updated the interaction details for you.";
+          next[next.length - 1] = lastMsg;
+        }
+        return next;
+      });
+
     } catch (err) {
       console.error('Error during chat request:', err);
       setErrorMsg('Failed to connect to the AI assistant. Please check if the backend is running.');
-      setChatHistory(prev => [
-        ...prev,
-        { role: 'assistant', content: "Sorry, I encountered an error. Please try again.", toolTrace: [] }
-      ]);
+      setChatHistory(prev => {
+        const next = [...prev];
+        if (next.length > 0 && next[next.length - 1].role === 'assistant' && !next[next.length - 1].content && (!next[next.length - 1].toolTrace || next[next.length - 1].toolTrace.length === 0)) {
+          next.pop();
+        }
+        return [
+          ...next,
+          { role: 'assistant', content: "Sorry, I encountered an error. Please try again.", toolTrace: [] }
+        ];
+      });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isLoading) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+    await sendMessage(userMessage);
+  };
+
+  const startVoiceRecording = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setRecordingStatus("Speech recognition not supported. Simulating voice note...");
+      setIsRecording(true);
+      setTimeout(() => {
+        const mockTranscript = "Today I met with Dr. Smith and discussed product X efficacy. Sentiment was positive, I shared brochures.";
+        sendMessage(mockTranscript);
+        setIsRecording(false);
+        setRecordingStatus("");
+      }, 3000);
+      return;
+    }
+
+    try {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'en-US';
+
+      rec.onstart = () => {
+        setIsRecording(true);
+        setRecordingStatus("Listening... Speak now.");
+      };
+
+      rec.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        if (event.error === 'not-allowed') {
+          setRecordingStatus("Microphone access denied. Please enable mic permissions.");
+        } else {
+          setRecordingStatus(`Error: ${event.error}. Try again.`);
+        }
+        setIsRecording(false);
+      };
+
+      rec.onend = () => {
+        setIsRecording(false);
+      };
+
+      rec.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          setRecordingStatus(`Transcribed: "${transcript}"`);
+          sendMessage(transcript);
+        } else {
+          setRecordingStatus("No speech detected.");
+        }
+      };
+
+      recognitionRef.current = rec;
+      rec.start();
+    } catch (err) {
+      console.error("Failed to start speech recognition:", err);
+      setRecordingStatus("Failed to start recording.");
+      setIsRecording(false);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    } else {
+      setIsRecording(false);
+      setRecordingStatus("");
+    }
+  };
+
+  const handleVoiceNoteClick = () => {
+    if (!hasVoiceConsent) {
+      setVoiceConsentShowing(true);
+      setRecordingStatus("Consent required to access microphone.");
+      return;
+    }
+
+    if (isRecording) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
     }
   };
 
@@ -288,15 +497,43 @@ function App() {
                 <span className="mic-decoration">🎤</span>
               </div>
               <ChgHint field="topics_discussed" />
-              <button type="button" className="voice-note-btn" disabled>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                  <line x1="12" y1="19" x2="12" y2="23"/>
-                  <line x1="8" y1="23" x2="16" y2="23"/>
-                </svg>
-                Summarize from Voice Note (Requires Consent)
-              </button>
+
+              {/* Voice Consent Checkbox */}
+              {(voiceConsentShowing || !hasVoiceConsent) && (
+                <div className="voice-consent-box">
+                  <label className="voice-consent-label">
+                    <input
+                      type="checkbox"
+                      id="voice-consent-checkbox"
+                      checked={hasVoiceConsent}
+                      onChange={(e) => {
+                        setHasVoiceConsent(e.target.checked);
+                        if (e.target.checked) {
+                          setRecordingStatus('');
+                        }
+                      }}
+                    />
+                    <span>I consent to voice recording and transcription.</span>
+                  </label>
+                </div>
+              )}
+
+              <div className="voice-note-action-row">
+                <button
+                  type="button"
+                  className={`voice-note-btn ${isRecording ? 'recording' : ''}`}
+                  onClick={handleVoiceNoteClick}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isRecording ? 'pulse-icon' : ''}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                  {isRecording ? 'Recording... Click to Stop' : 'Summarize from Voice Note'}
+                </button>
+                {recordingStatus && <span className="recording-status">{recordingStatus}</span>}
+              </div>
             </div>
 
             {/* 5. Materials Shared / Samples Distributed – vertical stack */}
