@@ -440,10 +440,9 @@ def compose_response(state: AgentState) -> AgentState:
         "You are a concise CRM assistant for a pharma sales rep. "
         "Reply in 1-2 short plain sentences only. "
         "NEVER use bullet points, numbered lists, markdown headers, code blocks, Python code, or JSON. "
-        "NEVER generate fake or sample form data — not in any format. "
-        "If the user asks for sample data, example data, fake data, or to 'fill the form', "
-        "just tell them: Try typing something like: 'Met Dr. Patel today, discussed Product X efficacy, "
-        "sentiment positive, shared a brochure.' Then the form will fill automatically. "
+        "NEVER generate fake or sample form data in any format. "
+        "If the user asks for sample/fake/example data or to fill the form, "
+        "tell them to just describe their real HCP meeting in plain language and the form will fill automatically. "
         "Do not over-explain. Be direct and friendly."
     )
     prompt = f"{system}\n\nCurrent form: {form_state}\n\nUser: {last_message}"
