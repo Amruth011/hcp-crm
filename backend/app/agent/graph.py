@@ -1,9 +1,9 @@
 from typing import TypedDict, List, Dict, Any
-from langchain_core.messages import BaseMessage, AIMessage
+from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
-from app.agent.schemas import LogInteractionExtraction
+from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction
 from app.agent.db import find_hcps_by_name
 
 # 1. State Definition
@@ -75,7 +75,72 @@ def log_interaction(state: AgentState) -> AgentState:
     return state
 
 def edit_interaction(state: AgentState) -> AgentState:
-    print("Calling edit_interaction tool... (not implemented yet)")
+    print("Executing edit_interaction tool...")
+    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    extractor = llm.with_structured_output(EditInteractionExtraction)
+    
+    last_message = state["messages"][-1].content if state["messages"] else ""
+    if not last_message:
+        return state
+        
+    # Provide the current state to the LLM so it knows what it's editing
+    current_form = state.get("interaction_form", {})
+    prompt = f"Current form state: {current_form}\n\nUser request: {last_message}\n\nExtract ONLY the fields the user explicitly wants to change."
+    
+    extracted: EditInteractionExtraction = extractor.invoke(prompt)
+    
+    # Check DB for HCP if it was changed
+    hcp_id = None
+    if extracted.hcp_name:
+        matches = find_hcps_by_name(extracted.hcp_name)
+        if len(matches) == 1:
+            hcp_id = matches[0]["id"]
+        elif len(matches) > 1:
+            # Ambiguous match
+            clarification = f"I found multiple HCPs named {extracted.hcp_name} ("
+            clarification += ", ".join([f"{m['specialty']}" for m in matches])
+            clarification += "). Which one did you mean?"
+            
+            state["active_hcp_candidates"] = matches
+            state["messages"].append(AIMessage(content=clarification))
+            return state
+            
+    # Write partial patch
+    form = current_form.copy()
+    
+    if hcp_id is not None:
+        form["hcp_id"] = hcp_id
+        # Optionally update hcp_name in form if we store it
+        form["hcp_name"] = extracted.hcp_name
+    elif extracted.hcp_name is not None:
+        form["hcp_name"] = extracted.hcp_name
+        
+    if extracted.interaction_type is not None:
+        form["interaction_type"] = extracted.interaction_type
+    if extracted.date is not None:
+        form["date"] = extracted.date
+    if extracted.time is not None:
+        form["time"] = extracted.time
+    if extracted.attendees is not None:
+        form["attendees"] = extracted.attendees
+    if extracted.topics_discussed is not None:
+        form["topics_discussed"] = extracted.topics_discussed
+    if extracted.sentiment is not None:
+        form["sentiment"] = extracted.sentiment
+    if extracted.materials_shared is not None:
+        form["materials_shared"] = extracted.materials_shared
+    if extracted.samples_distributed is not None:
+        form["samples_distributed"] = extracted.samples_distributed
+        
+    state["interaction_form"] = form
+    
+    # Add a tool trace
+    state.setdefault("tool_trace", []).append({
+        "tool_name": "edit_interaction",
+        "output": extracted.model_dump(),
+        "after_state": form.copy()
+    })
+    
     return state
 
 def check_compliance(state: AgentState) -> AgentState:
