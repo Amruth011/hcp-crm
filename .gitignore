@@ -1,0 +1,8 @@
+# Ignore dependency directories
+node_modules/
+__pycache__/
+.venv/
+venv/
+
+# Ignore local environment config/secrets
+.env
