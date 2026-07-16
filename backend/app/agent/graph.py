@@ -3,7 +3,7 @@ from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
-from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction
+from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction
 from app.agent.db import find_hcps_by_name
 
 # 1. State Definition
@@ -144,7 +144,37 @@ def edit_interaction(state: AgentState) -> AgentState:
     return state
 
 def check_compliance(state: AgentState) -> AgentState:
-    print("Calling check_compliance tool... (not implemented yet)")
+    print("Executing check_compliance tool...")
+    
+    # We only check compliance if there's an interaction form with relevant fields
+    form = state.get("interaction_form", {})
+    topics = form.get("topics_discussed", "")
+    outcomes = form.get("outcomes", "")
+    
+    if not topics and not outcomes:
+        return state
+        
+    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    extractor = llm.with_structured_output(ComplianceExtraction)
+    
+    prompt = f"Analyze the following interaction details for off-label claims, exaggerated efficacy, or compliance risks.\nTopics: {topics}\nOutcomes: {outcomes}"
+    extracted: ComplianceExtraction = extractor.invoke(prompt)
+    
+    # Write patch
+    new_form = form.copy()
+    new_form["compliance_flag"] = extracted.compliance_flag
+    if extracted.rationale:
+        new_form["compliance_rationale"] = extracted.rationale
+        
+    state["interaction_form"] = new_form
+    
+    # Add a tool trace
+    state.setdefault("tool_trace", []).append({
+        "tool_name": "check_compliance",
+        "output": extracted.model_dump(),
+        "after_state": new_form.copy()
+    })
+    
     return state
 
 def suggest_next_action(state: AgentState) -> AgentState:
@@ -197,9 +227,9 @@ def build_graph():
     
     # Skeleton routing - everything goes to END for now until tools are wired up
     workflow.add_edge("router", END)
-    workflow.add_edge("log_interaction", END)
-    workflow.add_edge("edit_interaction", END)
+    workflow.add_edge("log_interaction", "check_compliance")
     workflow.add_edge("check_compliance", END)
+    workflow.add_edge("edit_interaction", END)
     workflow.add_edge("suggest_next_action", END)
     workflow.add_edge("retrieve_interaction_history", END)
     

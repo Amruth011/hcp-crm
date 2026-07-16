@@ -21,3 +21,7 @@ class EditInteractionExtraction(BaseModel):
     sentiment: Optional[Literal["positive", "neutral", "negative"]] = Field(None, description="Sentiment, ONLY if requested to change")
     materials_shared: Optional[List[str]] = Field(None, description="Materials shared, ONLY if requested to change")
     samples_distributed: Optional[List[str]] = Field(None, description="Samples distributed, ONLY if requested to change")
+
+class ComplianceExtraction(BaseModel):
+    compliance_flag: Literal["clear", "review"] = Field(description="Assess if the interaction contains off-label, exaggerated, or non-compliant claims.")
+    rationale: Optional[str] = Field(None, description="One-line rationale if the flag is 'review'")
