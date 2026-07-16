@@ -430,6 +430,27 @@ def router(state: AgentState) -> AgentState:
     state["confidence"] = decision.confidence
     return state
 
+_CRM_FIELDS = [
+    'hcp_name', 'interaction_type', 'attendees', 'topics_discussed',
+    'materials_shared', 'samples_distributed', 'sentiment', 'outcomes',
+    'follow_up_actions', 'compliance_flag', 'suggested_follow_ups',
+]
+_REFUSAL = (
+    "Just describe your HCP meeting in plain language (e.g., who you met, "
+    "what was discussed, the sentiment) and the form will fill automatically."
+)
+
+def _sanitize_response(text: str) -> str:
+    """Hard guardrail: reject any LLM output that looks like fake form data."""
+    hits = sum(1 for f in _CRM_FIELDS if f in text)
+    if hits >= 3:
+        return _REFUSAL
+    # Also reject raw dict/JSON blobs
+    if text.strip().startswith('{') or "Here's the updated state" in text:
+        return _REFUSAL
+    return text
+
+
 def compose_response(state: AgentState) -> AgentState:
     print("Executing compose_response tool...")
     llm = ChatGroq(model_name="llama-3.1-8b-instant")
@@ -448,7 +469,8 @@ def compose_response(state: AgentState) -> AgentState:
     prompt = f"{system}\n\nCurrent form: {form_state}\n\nUser: {last_message}"
 
     response = llm.invoke(prompt)
-    state["messages"].append(AIMessage(content=response.content))
+    safe_content = _sanitize_response(response.content)
+    state["messages"].append(AIMessage(content=safe_content))
     return state
 
 # 4. Graph Construction
