@@ -509,6 +509,29 @@ body {
 .md-content strong { font-weight: 700; }
 .md-content code { background: rgba(0,0,0,0.07); border-radius: 3px; padding: 1px 4px; font-size: 0.85em; }
 
+.md-code-block {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 200px;
+  white-space: pre;
+  margin: 6px 0;
+}
+
+.md-code-block code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+
 /* Loading dots */
 .loading-bubble {
   display: flex;

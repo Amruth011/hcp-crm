@@ -24,7 +24,22 @@ function SimpleMarkdown({ children }) {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    if (/^[-*] /.test(line)) {
+
+    // Fenced code block (``` or ```lang)
+    if (/^```/.test(line)) {
+      const codeLines = [];
+      i++; // skip opening fence
+      while (i < lines.length && !/^```/.test(lines[i])) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // skip closing fence
+      out.push(
+        <pre key={out.length} className="md-code-block">
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+    } else if (/^[-*] /.test(line)) {
       const items = [];
       while (i < lines.length && /^[-*] /.test(lines[i])) {
         items.push(lines[i].slice(2));
