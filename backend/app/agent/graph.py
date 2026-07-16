@@ -3,7 +3,7 @@ from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
-from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction
+from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction, HistoryQueryExtraction
 from app.agent.db import find_hcps_by_name, get_past_interactions
 
 # 1. State Definition
@@ -33,13 +33,8 @@ def log_interaction(state: AgentState) -> AgentState:
         if len(matches) == 1:
             hcp_id = matches[0]["id"]
         elif len(matches) > 1:
-            # Ambiguous match, do not patch form.
-            clarification = f"I found multiple HCPs named {extracted.hcp_name} ("
-            clarification += ", ".join([f"{m['specialty']}" for m in matches])
-            clarification += "). Which one did you meet?"
-            
+            # Ambiguous match, do not patch form. Pass candidates down.
             state["active_hcp_candidates"] = matches
-            state["messages"].append(AIMessage(content=clarification))
             return state
             
     # Write patch
@@ -96,13 +91,8 @@ def edit_interaction(state: AgentState) -> AgentState:
         if len(matches) == 1:
             hcp_id = matches[0]["id"]
         elif len(matches) > 1:
-            # Ambiguous match
-            clarification = f"I found multiple HCPs named {extracted.hcp_name} ("
-            clarification += ", ".join([f"{m['specialty']}" for m in matches])
-            clarification += "). Which one did you mean?"
-            
+            # Ambiguous match, do not patch form. Pass candidates down.
             state["active_hcp_candidates"] = matches
-            state["messages"].append(AIMessage(content=clarification))
             return state
             
     # Write partial patch
@@ -221,7 +211,50 @@ def suggest_next_action(state: AgentState) -> AgentState:
     return state
 
 def retrieve_interaction_history(state: AgentState) -> AgentState:
-    print("Calling retrieve_interaction_history tool... (not implemented yet)")
+    print("Executing retrieve_interaction_history tool...")
+    
+    candidates = state.get("active_hcp_candidates", [])
+    if len(candidates) > 1:
+        # Path A: Disambiguation fallback
+        hcp_name = candidates[0].get("name", "the HCP")
+        clarification = f"I found multiple HCPs named {hcp_name} ("
+        clarification += ", ".join([f"{m['specialty']}" for m in candidates])
+        clarification += "). Which one did you mean?"
+        
+        state["messages"].append(AIMessage(content=clarification))
+        return state
+        
+    # Path B: History Query
+    last_message = state["messages"][-1].content if state["messages"] else ""
+    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    extractor = llm.with_structured_output(HistoryQueryExtraction)
+    
+    prompt = f"User is asking about past interactions. Extract the HCP name they are asking about.\nUser query: {last_message}"
+    extracted: HistoryQueryExtraction = extractor.invoke(prompt)
+    
+    if extracted.hcp_name:
+        matches = find_hcps_by_name(extracted.hcp_name)
+        if len(matches) == 1:
+            hcp_id = matches[0]["id"]
+            past = get_past_interactions(hcp_id, limit=5)
+            if not past:
+                state["messages"].append(AIMessage(content=f"I couldn't find any past interactions for {matches[0]['name']}."))
+                return state
+                
+            summary_prompt = f"Summarize these past interactions for the user in a short, natural language response:\n{past}"
+            summary_response = llm.invoke(summary_prompt)
+            state["messages"].append(AIMessage(content=summary_response.content))
+        elif len(matches) > 1:
+            # Re-use Path A logic
+            state["active_hcp_candidates"] = matches
+            hcp_name = matches[0].get("name", "the HCP")
+            clarification = f"I found multiple HCPs named {hcp_name} ("
+            clarification += ", ".join([f"{m['specialty']}" for m in matches])
+            clarification += "). Which one did you mean?"
+            state["messages"].append(AIMessage(content=clarification))
+        else:
+            state["messages"].append(AIMessage(content=f"I couldn't find any HCP named {extracted.hcp_name}."))
+            
     return state
 
 # 3. Router Node
@@ -250,6 +283,16 @@ def router(state: AgentState) -> AgentState:
     return state
 
 # 4. Graph Construction
+def after_log_interaction(state: AgentState) -> str:
+    if len(state.get("active_hcp_candidates", [])) > 1:
+        return "retrieve_interaction_history"
+    return "check_compliance"
+
+def after_edit_interaction(state: AgentState) -> str:
+    if len(state.get("active_hcp_candidates", [])) > 1:
+        return "retrieve_interaction_history"
+    return END
+
 def build_graph():
     workflow = StateGraph(AgentState)
     
@@ -266,10 +309,10 @@ def build_graph():
     
     # Skeleton routing - everything goes to END for now until tools are wired up
     workflow.add_edge("router", END)
-    workflow.add_edge("log_interaction", "check_compliance")
+    workflow.add_conditional_edges("log_interaction", after_log_interaction)
+    workflow.add_conditional_edges("edit_interaction", after_edit_interaction)
     workflow.add_edge("check_compliance", "suggest_next_action")
     workflow.add_edge("suggest_next_action", END)
-    workflow.add_edge("edit_interaction", END)
     workflow.add_edge("retrieve_interaction_history", END)
     
     return workflow.compile()

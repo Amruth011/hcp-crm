@@ -29,3 +29,5 @@ class ComplianceExtraction(BaseModel):
 class NextActionExtraction(BaseModel):
     suggested_follow_ups: List[str] = Field(description="1-3 items of plain-language follow-up suggestions")
 
+class HistoryQueryExtraction(BaseModel):
+    hcp_name: Optional[str] = Field(description="The name of the HCP being queried")
