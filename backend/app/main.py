@@ -17,6 +17,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.routers import chat
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "message": "HCP CRM Backend is running"}
+
+app.include_router(chat.router, prefix="/api", tags=["chat"])

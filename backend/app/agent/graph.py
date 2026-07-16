@@ -3,7 +3,7 @@ from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
-from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction, HistoryQueryExtraction
+from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction, HistoryQueryExtraction, RouterDecision
 from app.agent.db import find_hcps_by_name, get_past_interactions, log_tool_call
 
 # 1. State Definition
@@ -13,11 +13,12 @@ class AgentState(TypedDict):
     confidence: float
     active_hcp_candidates: List[Dict[str, Any]]
     tool_trace: List[Dict[str, Any]]
+    next_node: str
 
 # 2. Tool Nodes (Stubs)
 def log_interaction(state: AgentState) -> AgentState:
     print("Executing log_interaction tool...")
-    model_name = "llama-3.1-8b-instant"
+    model_name = "llama-3.3-70b-versatile"
     llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(LogInteractionExtraction)
     
@@ -28,7 +29,8 @@ def log_interaction(state: AgentState) -> AgentState:
     if not last_message:
         return state
         
-    extracted: LogInteractionExtraction = extractor.invoke(last_message)
+    prompt = f"Extract interaction details from the user's narration. Do not guess any fields not mentioned in the text. Omit missing fields (like time) or return empty lists [] for list fields.\n\nUser narration: {last_message}"
+    extracted: LogInteractionExtraction = extractor.invoke(prompt)
     
     # Check DB for HCP
     hcp_id = None
@@ -63,6 +65,8 @@ def log_interaction(state: AgentState) -> AgentState:
     if hcp_id:
         form["hcp_id"] = hcp_id
         form["hcp_name"] = extracted.hcp_name
+    elif extracted.hcp_name:
+        form["hcp_name"] = extracted.hcp_name
     if extracted.interaction_type:
         form["interaction_type"] = extracted.interaction_type
     if extracted.date:
@@ -79,6 +83,10 @@ def log_interaction(state: AgentState) -> AgentState:
         form["materials_shared"] = extracted.materials_shared
     if extracted.samples_distributed:
         form["samples_distributed"] = extracted.samples_distributed
+    if extracted.outcomes:
+        form["outcomes"] = extracted.outcomes
+    if extracted.follow_up_actions:
+        form["follow_up_actions"] = extracted.follow_up_actions
         
     state["interaction_form"] = form
     
@@ -105,7 +113,7 @@ def log_interaction(state: AgentState) -> AgentState:
 
 def edit_interaction(state: AgentState) -> AgentState:
     print("Executing edit_interaction tool...")
-    model_name = "llama-3.1-8b-instant"
+    model_name = "llama-3.3-70b-versatile"
     llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(EditInteractionExtraction)
     
@@ -174,6 +182,10 @@ def edit_interaction(state: AgentState) -> AgentState:
         form["materials_shared"] = extracted.materials_shared
     if extracted.samples_distributed is not None:
         form["samples_distributed"] = extracted.samples_distributed
+    if extracted.outcomes is not None:
+        form["outcomes"] = extracted.outcomes
+    if extracted.follow_up_actions is not None:
+        form["follow_up_actions"] = extracted.follow_up_actions
         
     state["interaction_form"] = form
     
@@ -200,7 +212,7 @@ def edit_interaction(state: AgentState) -> AgentState:
 
 def check_compliance(state: AgentState) -> AgentState:
     print("Executing check_compliance tool...")
-    model_name = "llama-3.1-8b-instant"
+    model_name = "llama-3.3-70b-versatile"
     
     # Capture before_state
     before_state = state.get("interaction_form", {}).copy()
@@ -250,7 +262,7 @@ def check_compliance(state: AgentState) -> AgentState:
 
 def suggest_next_action(state: AgentState) -> AgentState:
     print("Executing suggest_next_action tool...")
-    model_name = "llama-3.1-8b-instant"
+    model_name = "llama-3.3-70b-versatile"
     
     # Capture before_state
     before_state = state.get("interaction_form", {}).copy()
@@ -331,13 +343,14 @@ def retrieve_interaction_history(state: AgentState) -> AgentState:
             before_state=before_state,
             after_state=before_state,
             confidence=state.get("confidence", 1.0),
-            model_used="llama-3.1-8b-instant"
+            model_used="llama-3.3-70b-versatile"
         )
         return state
         
     # Path B: History Query
     last_message = state["messages"][-1].content if state["messages"] else ""
-    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    model_name = "llama-3.3-70b-versatile"
+    llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(HistoryQueryExtraction)
     
     prompt = f"User is asking about past interactions. Extract the HCP name they are asking about.\nUser query: {last_message}"
@@ -374,37 +387,66 @@ def retrieve_interaction_history(state: AgentState) -> AgentState:
         before_state=before_state,
         after_state=state.get("interaction_form", {}).copy(),
         confidence=state.get("confidence", 1.0),
-        model_used=model_name if 'model_name' in locals() else "llama-3.1-8b-instant"
+        model_used=model_name if 'model_name' in locals() else "llama-3.3-70b-versatile"
     )
             
     return state
 
 # 3. Router Node
 def router(state: AgentState) -> AgentState:
-    escalate = False
+    print("Executing router node...")
     
-    # Escalation Rule: confidence < 0.7
-    if state.get("confidence", 1.0) < 0.7:
-        escalate = True
-    
-    # Escalation Rule: message implies 3+ fields changing at once
-    # (Placeholder logic for identifying complex multi-field edits)
-    last_message = state["messages"][-1].content if state["messages"] else ""
-    if "and" in last_message.lower() and len(last_message.split()) > 20: 
-        # Very crude placeholder - will be refined
-        escalate = True
-
-    model_used = "llama-3.3-70b-versatile" if escalate else "llama-3.1-8b-instant"
+    # We always start by trying the smaller, faster model
+    model_used = "llama-3.1-8b-instant"
     llm = ChatGroq(model_name=model_used)
+    extractor = llm.with_structured_output(RouterDecision)
     
-    # We would bind our tools here: llm_with_tools = llm.bind_tools([...])
-    # response = llm_with_tools.invoke(state["messages"])
-    # 
-    # For now, this is just a skeleton router.
+    last_message = state["messages"][-1].content if state["messages"] else ""
+    form_state = state.get("interaction_form", {})
     
+    prompt = f"Current form state: {form_state}\n\nUser message: {last_message}\n\n"
+    prompt += "Decide the next action:\n"
+    prompt += "- log_interaction: The user is narrating a new interaction.\n"
+    prompt += "- edit_interaction: The user is correcting or modifying existing fields.\n"
+    prompt += "- retrieve_interaction_history: The user is asking about past discussions.\n"
+    prompt += "- compose_response: The user is just chatting, asking general questions, or no other tool applies.\n"
+    
+    decision: RouterDecision = extractor.invoke(prompt)
+    
+    escalate = False
+    if decision.confidence < 0.7:
+        escalate = True
+    if decision.field_edits_count > 2:
+        escalate = True
+        
+    if escalate:
+        print(f"Escalating router decision (confidence={decision.confidence}, edits={decision.field_edits_count}) to llama-3.3-70b-versatile")
+        model_used = "llama-3.3-70b-versatile"
+        llm = ChatGroq(model_name=model_used)
+        extractor = llm.with_structured_output(RouterDecision)
+        decision = extractor.invoke(prompt)
+        
+    state["next_node"] = decision.tool_to_call
+    state["confidence"] = decision.confidence
+    return state
+
+def compose_response(state: AgentState) -> AgentState:
+    print("Executing compose_response tool...")
+    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    last_message = state["messages"][-1].content if state["messages"] else ""
+    form_state = state.get("interaction_form", {})
+    
+    prompt = f"Current form state: {form_state}\n\nUser message: {last_message}\n\n"
+    prompt += "You are a helpful CRM assistant for a pharma sales rep. Acknowledge the user's message concisely."
+    
+    response = llm.invoke(prompt)
+    state["messages"].append(AIMessage(content=response.content))
     return state
 
 # 4. Graph Construction
+def router_condition(state: AgentState) -> str:
+    return state.get("next_node", "compose_response")
+
 def after_log_interaction(state: AgentState) -> str:
     if len(state.get("active_hcp_candidates", [])) > 1:
         return "retrieve_interaction_history"
@@ -425,17 +467,19 @@ def build_graph():
     workflow.add_node("check_compliance", check_compliance)
     workflow.add_node("suggest_next_action", suggest_next_action)
     workflow.add_node("retrieve_interaction_history", retrieve_interaction_history)
+    workflow.add_node("compose_response", compose_response)
     
     # Entry point
     workflow.set_entry_point("router")
     
-    # Skeleton routing - everything goes to END for now until tools are wired up
-    workflow.add_edge("router", END)
+    # Edges
+    workflow.add_conditional_edges("router", router_condition)
     workflow.add_conditional_edges("log_interaction", after_log_interaction)
     workflow.add_conditional_edges("edit_interaction", after_edit_interaction)
     workflow.add_edge("check_compliance", "suggest_next_action")
-    workflow.add_edge("suggest_next_action", END)
+    workflow.add_edge("suggest_next_action", "compose_response")
     workflow.add_edge("retrieve_interaction_history", END)
+    workflow.add_edge("compose_response", END)
     
     return workflow.compile()
 

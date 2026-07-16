@@ -5,12 +5,15 @@ class LogInteractionExtraction(BaseModel):
     hcp_name: Optional[str] = Field(description="The name of the HCP, e.g. 'Dr. Smith'")
     interaction_type: Optional[str] = Field(description="Type of interaction, e.g. 'meeting', 'call'")
     date: Optional[str] = Field(description="Date of interaction, e.g. 'today', '2023-10-01'")
-    time: Optional[str] = Field(description="Time of interaction")
-    attendees: Optional[List[str]] = Field(description="List of attendees")
+    time: Optional[str] = Field(None, description="Time of interaction. Omit if not mentioned.")
+    attendees: List[str] = Field(default_factory=list, description="List of attendees. Use empty list [] if none.")
     topics_discussed: Optional[str] = Field(description="Topics discussed")
     sentiment: Optional[Literal["positive", "neutral", "negative"]] = Field(description="Sentiment of the interaction")
-    materials_shared: Optional[List[str]] = Field(description="List of materials shared")
-    samples_distributed: Optional[List[str]] = Field(description="List of samples distributed")
+    materials_shared: List[str] = Field(default_factory=list, description="List of materials shared. Use empty list [] if none.")
+    samples_distributed: List[str] = Field(default_factory=list, description="List of samples distributed. Use empty list [] if none.")
+    outcomes: Optional[str] = Field(None, description="Outcomes of the interaction. Omit if not mentioned.")
+    follow_up_actions: Optional[str] = Field(None, description="Follow-up actions. Omit if not mentioned.")
+
 class EditInteractionExtraction(BaseModel):
     hcp_name: Optional[str] = Field(None, description="The name of the HCP, ONLY if requested to change")
     interaction_type: Optional[str] = Field(None, description="Type of interaction, ONLY if requested to change")
@@ -21,6 +24,8 @@ class EditInteractionExtraction(BaseModel):
     sentiment: Optional[Literal["positive", "neutral", "negative"]] = Field(None, description="Sentiment, ONLY if requested to change")
     materials_shared: Optional[List[str]] = Field(None, description="Materials shared, ONLY if requested to change")
     samples_distributed: Optional[List[str]] = Field(None, description="Samples distributed, ONLY if requested to change")
+    outcomes: Optional[str] = Field(None, description="Outcomes of the interaction, ONLY if requested to change")
+    follow_up_actions: Optional[str] = Field(None, description="Follow-up actions, ONLY if requested to change")
 
 class ComplianceExtraction(BaseModel):
     compliance_flag: Literal["clear", "review"] = Field(description="Assess if the interaction contains off-label, exaggerated, or non-compliant claims.")
@@ -31,3 +36,8 @@ class NextActionExtraction(BaseModel):
 
 class HistoryQueryExtraction(BaseModel):
     hcp_name: Optional[str] = Field(description="The name of the HCP being queried")
+
+class RouterDecision(BaseModel):
+    tool_to_call: Literal["log_interaction", "edit_interaction", "retrieve_interaction_history", "compose_response"] = Field(description="The tool to route the user's message to. If the user is just chatting or if no other tool applies, use compose_response.")
+    confidence: float = Field(description="Confidence score from 0.0 to 1.0 on whether this is the correct tool.")
+    field_edits_count: int = Field(default=0, description="The estimated number of fields that will be updated (used for escalation gating).")
