@@ -1,0 +1,8 @@
+# Git Ignore File
+# Specifies intentionally untracked files that Git should ignore.
+
+# Ignore dependency directories
+node_modules/
+
+# Ignore local environment config/secrets
+.env
