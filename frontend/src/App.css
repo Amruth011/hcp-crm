@@ -85,6 +85,19 @@ body {
   margin: 0;
 }
 
+.panel-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-subtitle {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
 .ai-lock-badge {
   display: inline-flex;
   align-items: center;
@@ -456,6 +469,47 @@ body {
   margin: 0;
 }
 
+/* react-markdown rendered content inside assistant bubbles */
+.md-content p {
+  margin: 0 0 6px 0;
+  line-height: 1.5;
+}
+
+.md-content p:last-child {
+  margin-bottom: 0;
+}
+
+.md-content ul,
+.md-content ol {
+  margin: 4px 0 6px 0;
+  padding-left: 18px;
+}
+
+.md-content li {
+  margin-bottom: 3px;
+  line-height: 1.5;
+}
+
+.md-content strong {
+  font-weight: 700;
+}
+
+.md-content code {
+  background-color: rgba(0,0,0,0.06);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.85em;
+}
+
+/* Static welcome bubble - pinned at top, slightly distinct */
+.welcome-bubble {
+  background-color: #eef2ff !important;
+  border: 1px solid #c7d2fe;
+  color: #4338ca !important;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
 /* Typing / Loading Bubble */
 .loading-bubble {
   display: flex;
@@ -555,4 +609,100 @@ body {
 .chat-messages-container::-webkit-scrollbar-thumb {
   background-color: #cbd5e1;
   border-radius: 3px;
+}
+
+/* ── Field change hint (strikethrough old value) ──────────────────────── */
+.change-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  animation: hint-fade 4s ease-in-out forwards;
+}
+
+.change-hint-old {
+  text-decoration: line-through;
+  color: #ef4444;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.change-hint-arrow {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+@keyframes hint-fade {
+  0%   { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ── Tool-trace tags (under AI chat bubbles) ──────────────────────────── */
+.tool-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-left: 2px;
+  align-self: flex-start; /* stays left-aligned */
+  max-width: 100%;
+}
+
+.tool-trace-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-trace-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #6366f1;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  line-height: 1;
+}
+
+.tool-trace-tag:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+
+.tool-trace-icon {
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+
+.tool-trace-chevron {
+  font-size: 0.6rem;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+.tool-trace-detail {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 10px 13px;
+  border-radius: 7px;
+  overflow-x: auto;
+  overflow-y: auto;
+  white-space: pre;
+  word-break: normal;
+  max-height: 220px;
+  margin: 0;
+  border: 1px solid #1e293b;
 }

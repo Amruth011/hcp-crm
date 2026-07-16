@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { setInteraction, clearInteraction } from './features/interactionSlice';
+import ReactMarkdown from 'react-markdown';
 import './App.css';
 
 function App() {
@@ -9,18 +10,55 @@ function App() {
 
   // Chat state
   const [chatInput, setChatInput] = useState('');
-  const [chatHistory, setChatHistory] = useState([
-    { role: 'assistant', content: "Hello! I am your AI Copilot. Speak or type to log or update interaction details." }
-  ]);
+  const [chatHistory, setChatHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const chatEndRef = useRef(null);
+  const prevInteractionRef = useRef(interaction);
+  const [changedFields, setChangedFields] = useState({});
+  const [expandedTraces, setExpandedTraces] = useState(new Set());
 
   // Scroll to bottom of chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory, isLoading]);
+
+  // Detect which fields changed due to a tool call and flash them for 4 s
+  useEffect(() => {
+    const prev = prevInteractionRef.current;
+    const curr = interaction;
+    const changes = {};
+
+    const strFields = ['hcp_name', 'interaction_type', 'date', 'time',
+                       'topics_discussed', 'sentiment', 'outcomes', 'follow_up_actions'];
+    for (const f of strFields) {
+      if (prev[f] !== curr[f] && prev[f] != null && prev[f] !== '') {
+        changes[f] = { oldValue: String(prev[f]) };
+      }
+    }
+    const arrFields = ['attendees', 'materials_shared', 'samples_distributed'];
+    for (const f of arrFields) {
+      const pv = prev[f] || [];
+      const cv = curr[f] || [];
+      if (JSON.stringify(pv) !== JSON.stringify(cv) && pv.length > 0) {
+        changes[f] = { oldValue: pv.join(', ') };
+      }
+    }
+
+    prevInteractionRef.current = curr;
+    if (Object.keys(changes).length === 0) return;
+
+    setChangedFields(ex => ({ ...ex, ...changes }));
+    const t = setTimeout(() => {
+      setChangedFields(ex => {
+        const n = { ...ex };
+        for (const k of Object.keys(changes)) delete n[k];
+        return n;
+      });
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [interaction]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -65,10 +103,14 @@ function App() {
         dispatch(setInteraction(data.interaction_form));
       }
 
-      // Add assistant response to history
+      // Add assistant response to history (with tool trace if any)
       setChatHistory(prev => [
         ...prev,
-        { role: 'assistant', content: data.chat_response || "I've updated the interaction details for you." }
+        {
+          role: 'assistant',
+          content: data.chat_response || "I've updated the interaction details for you.",
+          toolTrace: data.tool_trace || []
+        }
       ]);
     } catch (err) {
       console.error('Error during chat request:', err);
@@ -84,10 +126,28 @@ function App() {
 
   const handleReset = () => {
     dispatch(clearInteraction());
-    setChatHistory([
-      { role: 'assistant', content: "Interaction state reset. How can I help you log a new interaction?" }
-    ]);
+    setChatHistory([]);
     setErrorMsg('');
+  };
+
+  // Helper: renders the 4-second strikethrough hint below a changed field
+  const ChgHint = ({ field }) => {
+    if (!changedFields[field]) return null;
+    return (
+      <div className="change-hint">
+        <span className="change-hint-old">{changedFields[field].oldValue}</span>
+        <span className="change-hint-arrow">→</span>
+      </div>
+    );
+  };
+
+  // Helper: toggle a trace key in the expanded set
+  const toggleTrace = (key) => {
+    setExpandedTraces(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
   };
 
   return (
@@ -117,6 +177,7 @@ function App() {
                 disabled
                 placeholder="No HCP selected"
               />
+              <ChgHint field="hcp_name" />
             </div>
             <div className="form-group flex-1">
               <label>Interaction Type</label>
@@ -127,6 +188,7 @@ function App() {
                 disabled
                 placeholder="e.g. Call, Meeting"
               />
+              <ChgHint field="interaction_type" />
             </div>
           </div>
 
@@ -141,6 +203,7 @@ function App() {
                 disabled
                 placeholder="YYYY-MM-DD"
               />
+              <ChgHint field="date" />
             </div>
             <div className="form-group flex-1">
               <label>Time</label>
@@ -151,6 +214,7 @@ function App() {
                 disabled
                 placeholder="HH:MM AM/PM"
               />
+              <ChgHint field="time" />
             </div>
           </div>
 
@@ -166,6 +230,7 @@ function App() {
                 <span className="no-data-placeholder">No attendees recorded</span>
               )}
             </div>
+            <ChgHint field="attendees" />
           </div>
 
           {/* 4. Topics Discussed (textarea) + Summarize Link below it */}
@@ -178,6 +243,7 @@ function App() {
               placeholder="No topics discussed recorded"
               rows={4}
             />
+            <ChgHint field="topics_discussed" />
             <div className="consent-link-container">
               <a
                 href="#"
@@ -209,6 +275,7 @@ function App() {
                   <span className="no-data-placeholder">No materials shared</span>
                 )}
               </div>
+              <ChgHint field="materials_shared" />
             </div>
 
             {/* Samples Distributed Sub-section */}
@@ -226,6 +293,7 @@ function App() {
                   <span className="no-data-placeholder">No samples distributed</span>
                 )}
               </div>
+              <ChgHint field="samples_distributed" />
             </div>
           </div>
 
@@ -281,6 +349,7 @@ function App() {
               placeholder="No outcomes recorded"
               rows={3}
             />
+            <ChgHint field="outcomes" />
           </div>
 
           {/* 8. Follow-up Actions (textarea) + AI Suggested Follow-ups below it */}
@@ -293,6 +362,7 @@ function App() {
               placeholder="No follow-up actions recorded"
               rows={3}
             />
+            <ChgHint field="follow_up_actions" />
             
             {/* AI Suggested Follow-ups as bulleted "+" list */}
             <div className="suggested-followups-box">
@@ -314,7 +384,10 @@ function App() {
       {/* RIGHT PANEL - AI Assistant Chat */}
       <div className="right-panel">
         <div className="panel-header">
-          <h2>AI Copilot</h2>
+          <div className="panel-header-title">
+            <h2>AI Assistant</h2>
+            <span className="panel-subtitle">Log interaction via chat</span>
+          </div>
           <button type="button" className="reset-btn" onClick={handleReset}>
             Reset Form
           </button>
@@ -336,11 +409,49 @@ function App() {
         )}
 
         <div className="chat-messages-container">
+          {/* Static pinned welcome message - always shown, never from backend */}
+          <div className="chat-bubble-wrapper assistant-message">
+            <div className="chat-bubble welcome-bubble">
+              <p>Log interaction details here (e.g., &lsquo;Met Dr. Smith, discussed Product X efficacy, positive sentiment, shared brochure&rsquo;) or ask for help.</p>
+            </div>
+          </div>
+
           {chatHistory.map((msg, index) => (
             <div key={index} className={`chat-bubble-wrapper ${msg.role === 'user' ? 'user-message' : 'assistant-message'}`}>
               <div className="chat-bubble">
-                <p>{msg.content}</p>
+                {msg.role === 'user' ? (
+                  <p>{msg.content}</p>
+                ) : (
+                  <ReactMarkdown className="md-content">{msg.content}</ReactMarkdown>
+                )}
               </div>
+              {/* Tool trace tags - only on assistant messages that triggered a tool */}
+              {msg.role === 'assistant' && msg.toolTrace && msg.toolTrace.length > 0 && (
+                <div className="tool-trace-list">
+                  {msg.toolTrace.map((trace, ti) => {
+                    const key = `${index}-${ti}`;
+                    return (
+                      <div key={ti} className="tool-trace-item">
+                        <button
+                          className="tool-trace-tag"
+                          onClick={() => toggleTrace(key)}
+                          title="Click to inspect raw tool I/O"
+                        >
+                          <span className="tool-trace-icon">⚙</span>
+                          {trace.tool_name}
+                          <span className="tool-trace-chevron">{expandedTraces.has(key) ? '▲' : '▼'}</span>
+                        </button>
+                        {expandedTraces.has(key) && (
+                          <pre className="tool-trace-detail">{JSON.stringify(
+                            { input: trace.input_data, output: trace.output_data },
+                            null, 2
+                          )}</pre>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ))}
           {isLoading && (
@@ -362,11 +473,11 @@ function App() {
             type="text"
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
-            placeholder="Type your interaction details..."
+            placeholder="Describe interaction..."
             disabled={isLoading}
           />
           <button type="submit" disabled={isLoading || !chatInput.trim()}>
-            Send
+            Log
           </button>
         </form>
       </div>

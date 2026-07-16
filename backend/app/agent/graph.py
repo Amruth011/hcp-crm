@@ -435,10 +435,16 @@ def compose_response(state: AgentState) -> AgentState:
     llm = ChatGroq(model_name="llama-3.1-8b-instant")
     last_message = state["messages"][-1].content if state["messages"] else ""
     form_state = state.get("interaction_form", {})
-    
-    prompt = f"Current form state: {form_state}\n\nUser message: {last_message}\n\n"
-    prompt += "You are a helpful CRM assistant for a pharma sales rep. Acknowledge the user's message concisely."
-    
+
+    system = (
+        "You are a concise CRM assistant for a pharma sales rep. "
+        "Reply in 1-2 short plain sentences. "
+        "Never use bullet points, numbered lists, or markdown headers. "
+        "If the user asks what to do, tell them simply: describe their HCP meeting in the chat box and the form will fill itself automatically. "
+        "Do not over-explain. Be direct."
+    )
+    prompt = f"{system}\n\nCurrent form: {form_state}\n\nUser: {last_message}"
+
     response = llm.invoke(prompt)
     state["messages"].append(AIMessage(content=response.content))
     return state
