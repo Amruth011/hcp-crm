@@ -526,13 +526,7 @@ function App() {
                   className={`voice-note-btn ${isRecording ? 'recording' : ''}`}
                   onClick={handleVoiceNoteClick}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={isRecording ? 'pulse-icon' : ''}>
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" y1="19" x2="12" y2="23"/>
-                    <line x1="8" y1="23" x2="16" y2="23"/>
-                  </svg>
-                  {isRecording ? 'Recording... Click to Stop' : 'Summarize from Voice Note'}
+                  🎙 {isRecording ? 'Recording... Click to Stop' : 'Summarize from Voice Note (Requires Consent)'}
                 </button>
                 {recordingStatus && <span className="recording-status">{recordingStatus}</span>}
               </div>
@@ -551,9 +545,7 @@ function App() {
                   </button>
                 </div>
                 {interaction.materials_shared && interaction.materials_shared.length > 0 ? (
-                  <div className="material-chips">
-                    {interaction.materials_shared.map((m, i) => <span key={i} className="mat-chip">{m}</span>)}
-                  </div>
+                  <p className="material-value-text">{interaction.materials_shared.join(', ')}.</p>
                 ) : (
                   <p className="material-empty">No materials added.</p>
                 )}
@@ -569,9 +561,7 @@ function App() {
                   </button>
                 </div>
                 {interaction.samples_distributed && interaction.samples_distributed.length > 0 ? (
-                  <div className="material-chips">
-                    {interaction.samples_distributed.map((s, i) => <span key={i} className="mat-chip">{s}</span>)}
-                  </div>
+                  <p className="material-value-text">{interaction.samples_distributed.join(', ')}.</p>
                 ) : (
                   <p className="material-empty">No samples added.</p>
                 )}
@@ -663,14 +653,9 @@ function App() {
           {/* Header */}
           <div className="right-panel-header">
             <div className="ai-header-info">
-              <div className="ai-header-icon">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-              </div>
               <div>
-                <h2 className="ai-header-title">AI Assistant</h2>
-                <span className="ai-header-sub">Log interaction via chat</span>
+                <h2 className="ai-header-title">🤖 AI Assistant</h2>
+                <span className="ai-header-sub">Log Interaction details here via chat</span>
               </div>
             </div>
             <button type="button" className="reset-btn" onClick={handleReset}>
@@ -697,7 +682,7 @@ function App() {
             {/* Static pinned welcome bubble */}
             <div className="chat-bubble-wrapper assistant-message">
               <div className="chat-bubble welcome-bubble">
-                <p>Log interaction details here (e.g., &ldquo;Met Dr. Smith, discussed Product X efficacy, positive sentiment, shared brochure&rdquo;) or ask for help.</p>
+                <p>Log interaction details here (e.g., &ldquo;Met Dr. Smith, discussed Prodo-X efficacy, positive sentiment, shared brochure&rdquo;) or ask for help.</p>
               </div>
             </div>
 

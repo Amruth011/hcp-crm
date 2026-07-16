@@ -185,29 +185,27 @@ body {
 .voice-note-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 7px 14px;
-  font-size: 0.78rem;
+  gap: 5px;
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: #4b5563;
+  color: #2563eb !important;
   cursor: pointer;
   font-family: inherit;
-  margin-top: 2px;
+  margin-top: 6px;
   width: fit-content;
-  transition: all 0.2s ease;
+  text-decoration: underline;
+  transition: color 0.15s ease;
 }
 
 .voice-note-btn:hover:not(:disabled) {
-  background: #e5e7eb;
+  color: #1d4ed8 !important;
 }
 
 .voice-note-btn.recording {
-  background: #fee2e2;
-  border-color: #fca5a5;
-  color: #991b1b;
+  color: #dc2626 !important;
 }
 
 .voice-consent-box {
@@ -268,66 +266,68 @@ body {
 }
 
 /* ── Material boxes ───────────────────────────────────────── */
+/* ── Material Rows (borderless, matching reference) ────────── */
 .material-box {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin-top: 6px;
+  margin-top: 10px;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
 }
 
 .material-box + .material-box {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .material-box-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .material-box-title {
   font-size: 0.83rem;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-label);
 }
 
 .material-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: #ffffff;
-  border: 1px solid var(--border-input);
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 0.75rem;
+  gap: 4px;
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: var(--text-body);
+  color: #2563eb !important;
   cursor: not-allowed;
   font-family: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.material-action-btn:hover:not(:disabled) {
+  color: #1d4ed8 !important;
+  text-decoration: underline;
+}
+
+.material-action-btn svg {
+  color: currentColor !important;
 }
 
 .material-empty {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-style: italic;
+  font-size: 0.83rem;
+  color: var(--text-body);
   margin: 0;
 }
 
-.material-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.mat-chip {
-  background: var(--accent-light);
-  border: 1px solid #bfdbfe;
-  color: var(--accent);
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 5px;
+.material-value-text {
+  font-size: 0.83rem;
+  color: var(--text-dark);
+  margin: 0;
+  font-weight: 500;
 }
 
 /* ── Sentiment radios ─────────────────────────────────────── */
@@ -340,6 +340,7 @@ body {
 
 .sentiment-opt {
   display: flex;
+  flex-direction: row !important;
   align-items: center;
   gap: 6px;
   font-size: 0.84rem;
@@ -534,27 +535,30 @@ body {
 
 .chat-bubble p { margin: 0; }
 
-/* Welcome bubble */
+/* Welcome bubble helper card */
 .welcome-bubble {
-  background: #e8edf4;
-  color: #374151;
+  background: #ecfeff !important; /* Light cyan-50 */
+  border: 1px solid #cffafe !important;
+  color: #083344 !important;
   border-radius: 8px;
   max-width: 100%;
   width: 100%;
 }
 
-/* User bubble */
+/* User bubble with thick blue left border */
 .user-message .chat-bubble {
-  background: #eaeef4;
+  background: #f3f4f6;
   color: var(--text-body);
-  border-left: 3px solid #9ca3af;
+  border-left: 4px solid #2563eb !important;
+  border-radius: 8px;
 }
 
-/* AI bubble */
+/* AI bubble with thick green left border */
 .assistant-message .chat-bubble:not(.welcome-bubble):not(.loading-bubble) {
-  background: #dcfce7;
+  background: #f0fdf4;
   color: #14532d;
-  border-left: 3px solid #86efac;
+  border-left: 4px solid #16a34a !important;
+  border-radius: 8px;
 }
 
 /* react-markdown inside AI bubble */
@@ -658,12 +662,12 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: #1d4ed8;
+  background: #2563eb;
   color: #ffffff;
   border: none;
-  border-radius: 8px;
-  padding: 0 16px;
-  height: 40px;
+  border-radius: 9999px;
+  padding: 0 20px;
+  height: 38px;
   font-size: 0.875rem;
   font-weight: 600;
   font-family: inherit;
@@ -673,10 +677,11 @@ body {
   transition: background 0.15s ease;
 }
 
-.log-btn:hover:not(:disabled) { background: #1e40af; }
+.log-btn:hover:not(:disabled) { background: #1d4ed8; }
 
 .log-btn:disabled {
-  background: #93c5fd;
+  background: #cbd5e1;
+  color: #94a3b8;
   cursor: not-allowed;
 }
 
