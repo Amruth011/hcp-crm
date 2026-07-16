@@ -123,6 +123,8 @@ async def chat_message_stream(request: ChatRequest):
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
 
     return StreamingResponse(
