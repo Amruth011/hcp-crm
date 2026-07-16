@@ -12,3 +12,15 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+
+  # Frontend React Static Site
+  - type: web
+    name: hcp-crm-frontend
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://hcp-crm-backend-pts2.onrender.com
