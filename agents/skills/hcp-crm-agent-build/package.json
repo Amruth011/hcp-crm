@@ -1,0 +1,15 @@
+{
+  "name": "hcp-crm-agent-build",
+  "version": "1.0.0",
+  "description": "Skill package for HCP CRM Agent Build. Contains backend service dependencies for CRM interaction.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "postgres": "^3.4.4"
+  },
+  "//": "This file manages Node.js packages and dependencies (express, postgres, dotenv) for the HCP CRM Agent Build."
+}
