@@ -37,3 +37,20 @@ def get_past_interactions(hcp_id: int, limit: int = 3) -> List[Dict[str, Any]]:
             }
             for i in interactions
         ]
+
+def log_tool_call(interaction_id: int | None, tool_name: str, input_data: dict, output_data: dict, before_state: dict, after_state: dict, confidence: float | None = 1.0, model_used: str = "llama-3.1-8b-instant") -> None:
+    """Logs a tool call audit row to the agent_tool_calls table."""
+    from app.models.hcp import AgentToolCall
+    with SessionLocal() as db:
+        audit = AgentToolCall(
+            interaction_id=interaction_id,
+            tool_name=tool_name,
+            input=input_data,
+            output=output_data,
+            before_state=before_state,
+            after_state=after_state,
+            confidence=confidence,
+            model_used=model_used
+        )
+        db.add(audit)
+        db.commit()

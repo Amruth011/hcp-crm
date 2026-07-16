@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
 from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction, HistoryQueryExtraction
-from app.agent.db import find_hcps_by_name, get_past_interactions
+from app.agent.db import find_hcps_by_name, get_past_interactions, log_tool_call
 
 # 1. State Definition
 class AgentState(TypedDict):
@@ -17,8 +17,12 @@ class AgentState(TypedDict):
 # 2. Tool Nodes (Stubs)
 def log_interaction(state: AgentState) -> AgentState:
     print("Executing log_interaction tool...")
-    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    model_name = "llama-3.1-8b-instant"
+    llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(LogInteractionExtraction)
+    
+    # Capture before_state
+    before_state = state.get("interaction_form", {}).copy()
     
     last_message = state["messages"][-1].content if state["messages"] else ""
     if not last_message:
@@ -35,6 +39,23 @@ def log_interaction(state: AgentState) -> AgentState:
         elif len(matches) > 1:
             # Ambiguous match, do not patch form. Pass candidates down.
             state["active_hcp_candidates"] = matches
+            
+            # Log the tool call before returning
+            state.setdefault("tool_trace", []).append({
+                "tool_name": "log_interaction",
+                "output": extracted.model_dump(),
+                "after_state": before_state
+            })
+            log_tool_call(
+                interaction_id=before_state.get("id"),
+                tool_name="log_interaction",
+                input_data={"prompt": last_message},
+                output_data=extracted.model_dump(),
+                before_state=before_state,
+                after_state=before_state,
+                confidence=state.get("confidence", 1.0),
+                model_used=model_name
+            )
             return state
             
     # Write patch
@@ -60,27 +81,42 @@ def log_interaction(state: AgentState) -> AgentState:
         
     state["interaction_form"] = form
     
-    # Add a tool trace
+    
+    # Add a tool trace and log to DB
     state.setdefault("tool_trace", []).append({
         "tool_name": "log_interaction",
         "output": extracted.model_dump(),
         "after_state": form.copy()
     })
     
+    log_tool_call(
+        interaction_id=form.get("id"), # Might be None if not saved yet
+        tool_name="log_interaction",
+        input_data={"prompt": last_message},
+        output_data=extracted.model_dump(),
+        before_state=before_state,
+        after_state=form.copy(),
+        confidence=state.get("confidence", 1.0),
+        model_used=model_name
+    )
+    
     return state
 
 def edit_interaction(state: AgentState) -> AgentState:
     print("Executing edit_interaction tool...")
-    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    model_name = "llama-3.1-8b-instant"
+    llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(EditInteractionExtraction)
+    
+    # Capture before_state
+    before_state = state.get("interaction_form", {}).copy()
     
     last_message = state["messages"][-1].content if state["messages"] else ""
     if not last_message:
         return state
         
     # Provide the current state to the LLM so it knows what it's editing
-    current_form = state.get("interaction_form", {})
-    prompt = f"Current form state: {current_form}\n\nUser request: {last_message}\n\nExtract ONLY the fields the user explicitly wants to change."
+    prompt = f"Current form state: {before_state}\n\nUser request: {last_message}\n\nExtract ONLY the fields the user explicitly wants to change."
     
     extracted: EditInteractionExtraction = extractor.invoke(prompt)
     
@@ -93,6 +129,23 @@ def edit_interaction(state: AgentState) -> AgentState:
         elif len(matches) > 1:
             # Ambiguous match, do not patch form. Pass candidates down.
             state["active_hcp_candidates"] = matches
+            
+            # Log the tool call before returning
+            state.setdefault("tool_trace", []).append({
+                "tool_name": "edit_interaction",
+                "output": extracted.model_dump(),
+                "after_state": before_state
+            })
+            log_tool_call(
+                interaction_id=before_state.get("id"),
+                tool_name="edit_interaction",
+                input_data={"prompt": last_message},
+                output_data=extracted.model_dump(),
+                before_state=before_state,
+                after_state=before_state,
+                confidence=state.get("confidence", 1.0),
+                model_used=model_name
+            )
             return state
             
     # Write partial patch
@@ -124,17 +177,33 @@ def edit_interaction(state: AgentState) -> AgentState:
         
     state["interaction_form"] = form
     
-    # Add a tool trace
+    
+    # Add a tool trace and log to DB
     state.setdefault("tool_trace", []).append({
         "tool_name": "edit_interaction",
         "output": extracted.model_dump(),
         "after_state": form.copy()
     })
     
+    log_tool_call(
+        interaction_id=form.get("id"),
+        tool_name="edit_interaction",
+        input_data={"prompt": prompt},
+        output_data=extracted.model_dump(),
+        before_state=before_state,
+        after_state=form.copy(),
+        confidence=state.get("confidence", 1.0),
+        model_used=model_name
+    )
+    
     return state
 
 def check_compliance(state: AgentState) -> AgentState:
     print("Executing check_compliance tool...")
+    model_name = "llama-3.1-8b-instant"
+    
+    # Capture before_state
+    before_state = state.get("interaction_form", {}).copy()
     
     # We only check compliance if there's an interaction form with relevant fields
     form = state.get("interaction_form", {})
@@ -144,7 +213,7 @@ def check_compliance(state: AgentState) -> AgentState:
     if not topics and not outcomes:
         return state
         
-    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(ComplianceExtraction)
     
     prompt = f"Analyze the following interaction details for off-label claims, exaggerated efficacy, or compliance risks.\nTopics: {topics}\nOutcomes: {outcomes}"
@@ -158,17 +227,33 @@ def check_compliance(state: AgentState) -> AgentState:
         
     state["interaction_form"] = new_form
     
-    # Add a tool trace
+    
+    # Add a tool trace and log to DB
     state.setdefault("tool_trace", []).append({
         "tool_name": "check_compliance",
         "output": extracted.model_dump(),
         "after_state": new_form.copy()
     })
     
+    log_tool_call(
+        interaction_id=new_form.get("id"),
+        tool_name="check_compliance",
+        input_data={"prompt": prompt},
+        output_data=extracted.model_dump(),
+        before_state=before_state,
+        after_state=new_form.copy(),
+        confidence=state.get("confidence", 1.0),
+        model_used=model_name
+    )
+    
     return state
 
 def suggest_next_action(state: AgentState) -> AgentState:
     print("Executing suggest_next_action tool...")
+    model_name = "llama-3.1-8b-instant"
+    
+    # Capture before_state
+    before_state = state.get("interaction_form", {}).copy()
     
     form = state.get("interaction_form", {})
     sentiment = form.get("sentiment", "")
@@ -183,7 +268,7 @@ def suggest_next_action(state: AgentState) -> AgentState:
     if hcp_id is not None:
         past_interactions = get_past_interactions(hcp_id)
         
-    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    llm = ChatGroq(model_name=model_name)
     extractor = llm.with_structured_output(NextActionExtraction)
     
     prompt = f"Based on the following interaction details, suggest 1 to 3 short, plain-language follow-up actions for the sales rep.\n\n"
@@ -201,17 +286,32 @@ def suggest_next_action(state: AgentState) -> AgentState:
     
     state["interaction_form"] = new_form
     
-    # Add a tool trace
+    
+    # Add a tool trace and log to DB
     state.setdefault("tool_trace", []).append({
         "tool_name": "suggest_next_action",
         "output": extracted.model_dump(),
         "after_state": new_form.copy()
     })
     
+    log_tool_call(
+        interaction_id=new_form.get("id"),
+        tool_name="suggest_next_action",
+        input_data={"prompt": prompt},
+        output_data=extracted.model_dump(),
+        before_state=before_state,
+        after_state=new_form.copy(),
+        confidence=state.get("confidence", 1.0),
+        model_used=model_name
+    )
+    
     return state
 
 def retrieve_interaction_history(state: AgentState) -> AgentState:
     print("Executing retrieve_interaction_history tool...")
+    
+    # Capture before_state
+    before_state = state.get("interaction_form", {}).copy()
     
     candidates = state.get("active_hcp_candidates", [])
     if len(candidates) > 1:
@@ -222,6 +322,17 @@ def retrieve_interaction_history(state: AgentState) -> AgentState:
         clarification += "). Which one did you mean?"
         
         state["messages"].append(AIMessage(content=clarification))
+        
+        log_tool_call(
+            interaction_id=before_state.get("id"),
+            tool_name="retrieve_interaction_history",
+            input_data={"candidates": [c.get("name") for c in candidates]},
+            output_data={},
+            before_state=before_state,
+            after_state=before_state,
+            confidence=state.get("confidence", 1.0),
+            model_used="llama-3.1-8b-instant"
+        )
         return state
         
     # Path B: History Query
@@ -254,6 +365,17 @@ def retrieve_interaction_history(state: AgentState) -> AgentState:
             state["messages"].append(AIMessage(content=clarification))
         else:
             state["messages"].append(AIMessage(content=f"I couldn't find any HCP named {extracted.hcp_name}."))
+            
+    log_tool_call(
+        interaction_id=state.get("interaction_form", {}).get("id"),
+        tool_name="retrieve_interaction_history",
+        input_data={"prompt": prompt} if 'prompt' in locals() else {"candidates": [c.get("name") for c in candidates]},
+        output_data=extracted.model_dump() if 'extracted' in locals() else {},
+        before_state=before_state,
+        after_state=state.get("interaction_form", {}).copy(),
+        confidence=state.get("confidence", 1.0),
+        model_used=model_name if 'model_name' in locals() else "llama-3.1-8b-instant"
+    )
             
     return state
 

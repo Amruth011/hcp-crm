@@ -68,7 +68,7 @@ class AgentToolCall(Base):
     __tablename__ = "agent_tool_calls"
 
     id = Column(Integer, primary_key=True, index=True)
-    interaction_id = Column(Integer, ForeignKey("hcp_interactions.id"), nullable=False)
+    interaction_id = Column(Integer, ForeignKey("hcp_interactions.id"), nullable=True)
     tool_name = Column(String, nullable=False)
     input = Column(JSONB)
     output = Column(JSONB)
