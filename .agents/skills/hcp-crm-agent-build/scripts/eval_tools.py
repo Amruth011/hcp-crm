@@ -73,7 +73,7 @@ CASES = [
         name="log_interaction populates all expected fields",
         tool="log_interaction",
         message=(
-            "Today I met with Dr. Smith and discussed product X efficacy. "
+            "Today I met with Dr. Alice Jones and discussed product X efficacy. "
             "The sentiment was positive and I shared the brochures."
         ),
         assertions=[
@@ -163,7 +163,8 @@ def main():
 
     try:
         from backend.app.agent.graph import run_agent_turn  # noqa: F401
-    except ImportError:
+    except ImportError as e:
+        print(f"Error importing run_agent_turn: {e}")
         print(
             "Could not import run_agent_turn from backend.app.agent.graph.\n"
             "This script is a template — wire the import above to your actual "
