@@ -1,8 +1,52 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { setInteraction, clearInteraction } from './features/interactionSlice';
-import ReactMarkdown from 'react-markdown';
 import './App.css';
+
+// ── Lightweight markdown renderer (no external dep) ──────────────────────
+function renderInline(text) {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**'))
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith('*') && part.endsWith('*'))
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    if (part.startsWith('`') && part.endsWith('`'))
+      return <code key={i}>{part.slice(1, -1)}</code>;
+    return part;
+  });
+}
+
+function SimpleMarkdown({ children }) {
+  if (!children) return null;
+  const lines = children.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^[-*] /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        items.push(lines[i].slice(2));
+        i++;
+      }
+      out.push(<ul key={out.length}>{items.map((it, j) => <li key={j}>{renderInline(it)}</li>)}</ul>);
+    } else if (/^\d+\. /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\. /, ''));
+        i++;
+      }
+      out.push(<ol key={out.length}>{items.map((it, j) => <li key={j}>{renderInline(it)}</li>)}</ol>);
+    } else if (line.trim() === '') {
+      i++;
+    } else {
+      out.push(<p key={out.length}>{renderInline(line)}</p>);
+      i++;
+    }
+  }
+  return <div className="md-content">{out}</div>;
+}
 
 function App() {
   const interaction = useSelector((state) => state.interaction);
@@ -396,7 +440,7 @@ function App() {
                   {msg.role === 'user' ? (
                     <p>{msg.content}</p>
                   ) : (
-                    <ReactMarkdown className="md-content">{msg.content}</ReactMarkdown>
+                    <SimpleMarkdown>{msg.content}</SimpleMarkdown>
                   )}
                 </div>
 
