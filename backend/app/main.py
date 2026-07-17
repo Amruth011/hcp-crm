@@ -62,9 +62,12 @@ def diagnose_connections():
             response = llm.invoke("say hello")
             groq_status = f"ok: {response.content}"
     except Exception as e:
-        groq_status = f"error: {type(e).__name__} - {str(e)}"
+        cause = getattr(e, "__cause__", None)
+        cause_str = f"Cause: {type(cause).__name__} - {str(cause)}" if cause else "No cause"
+        groq_status = f"error: {type(e).__name__} - {str(e)}. {cause_str}"
 
     return {
+        "version": "v1.0.3-diag-cause",
         "database": db_status,
         "groq": groq_status,
         "groq_api_key_length": len(api_key) if api_key else 0,
