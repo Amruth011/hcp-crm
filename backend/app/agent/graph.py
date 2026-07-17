@@ -1,9 +1,16 @@
 import re
 import json
 from typing import TypedDict, List, Dict, Any
+import httpx
 from langchain_core.messages import BaseMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
+
+# Custom httpx client with HTTP2 disabled to prevent APIConnectionError on Render/cloud environments
+_http_client = httpx.Client(transport=httpx.HTTPTransport(http2=False))
+
+def get_llm(model_name: str) -> ChatGroq:
+    return ChatGroq(model_name=model_name, http_client=_http_client)
 
 from app.agent.schemas import LogInteractionExtraction, EditInteractionExtraction, ComplianceExtraction, NextActionExtraction, HistoryQueryExtraction, RouterDecision
 from app.agent.db import find_hcps_by_name, get_past_interactions, log_tool_call
@@ -81,7 +88,7 @@ class AgentState(TypedDict):
 def log_interaction(state: AgentState) -> AgentState:
     print("Executing log_interaction tool...")
     model_name = "llama-3.3-70b-versatile"
-    llm = ChatGroq(model_name=model_name)
+    llm = get_llm(model_name)
     extractor = llm.with_structured_output(LogInteractionExtraction)
     
     # Capture before_state
@@ -176,7 +183,7 @@ def log_interaction(state: AgentState) -> AgentState:
 def edit_interaction(state: AgentState) -> AgentState:
     print("Executing edit_interaction tool...")
     model_name = "llama-3.3-70b-versatile"
-    llm = ChatGroq(model_name=model_name)
+    llm = get_llm(model_name)
     extractor = llm.with_structured_output(EditInteractionExtraction)
     
     # Capture before_state
@@ -287,7 +294,7 @@ def check_compliance(state: AgentState) -> AgentState:
     if not topics and not outcomes:
         return state
         
-    llm = ChatGroq(model_name=model_name)
+    llm = get_llm(model_name)
     extractor = llm.with_structured_output(ComplianceExtraction)
     
     prompt = f"Analyze the following interaction details for off-label claims, exaggerated efficacy, or compliance risks.\nTopics: {topics}\nOutcomes: {outcomes}"
@@ -342,7 +349,7 @@ def suggest_next_action(state: AgentState) -> AgentState:
     if hcp_id is not None:
         past_interactions = get_past_interactions(hcp_id)
         
-    llm = ChatGroq(model_name=model_name)
+    llm = get_llm(model_name)
     extractor = llm.with_structured_output(NextActionExtraction)
     
     prompt = f"Based on the following interaction details, suggest 1 to 3 short, plain-language follow-up actions for the sales rep.\n\n"
@@ -412,7 +419,7 @@ def retrieve_interaction_history(state: AgentState) -> AgentState:
     # Path B: History Query
     last_message = state["messages"][-1].content if state["messages"] else ""
     model_name = "llama-3.3-70b-versatile"
-    llm = ChatGroq(model_name=model_name)
+    llm = get_llm(model_name)
     extractor = llm.with_structured_output(HistoryQueryExtraction)
     
     prompt = f"User is asking about past interactions. Extract the HCP name they are asking about.\nUser query: {last_message}"
@@ -461,7 +468,7 @@ def router(state: AgentState) -> AgentState:
     # We always start by trying the smaller, faster model
     # Use the more reliable larger model to avoid tool-use formatting errors on Groq
     model_used = "llama-3.3-70b-versatile"
-    llm = ChatGroq(model_name=model_used)
+    llm = get_llm(model_used)
     extractor = llm.with_structured_output(RouterDecision)
     
     last_message = state["messages"][-1].content if state["messages"] else ""
@@ -485,7 +492,7 @@ def router(state: AgentState) -> AgentState:
     if escalate:
         print(f"Escalating router decision (confidence={decision.confidence}, edits={decision.field_edits_count}) to llama-3.3-70b-versatile")
         model_used = "llama-3.3-70b-versatile"
-        llm = ChatGroq(model_name=model_used)
+        llm = get_llm(model_used)
         extractor = llm.with_structured_output(RouterDecision)
         decision = safe_invoke_extractor(extractor, prompt, RouterDecision)
         
@@ -516,7 +523,7 @@ def _sanitize_response(text: str) -> str:
 
 def compose_response(state: AgentState) -> AgentState:
     print("Executing compose_response tool...")
-    llm = ChatGroq(model_name="llama-3.1-8b-instant")
+    llm = get_llm("llama-3.1-8b-instant")
     last_message = state["messages"][-1].content if state["messages"] else ""
     form_state = state.get("interaction_form", {})
 
