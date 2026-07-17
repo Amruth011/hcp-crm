@@ -8,6 +8,12 @@ from dotenv import load_dotenv
 # Load environment variables from .env
 load_dotenv(dotenv_path="../.env")
 
+# Strip whitespace and trailing newlines from crucial environment variables
+for env_var in ["GROQ_API_KEY", "DATABASE_URL"]:
+    val = os.getenv(env_var)
+    if val:
+        os.environ[env_var] = val.strip()
+
 app = FastAPI(title="HCP CRM API")
 
 # Configure CORS
