@@ -142,7 +142,10 @@ function App() {
       }));
 
       const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const apiBaseUrl = import.meta.env.VITE_API_URL || (isLocalhost ? 'http://localhost:8000' : '');
+      let apiBaseUrl = import.meta.env.VITE_API_URL || (isLocalhost ? 'http://localhost:8000' : '');
+      if (apiBaseUrl.includes('hcp-crm-backend.onrender.com')) {
+        apiBaseUrl = apiBaseUrl.replace('hcp-crm-backend.onrender.com', 'hcp-crm-backend-pts2.onrender.com');
+      }
       const response = await fetch(`${apiBaseUrl}/api/chat/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
