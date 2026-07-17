@@ -30,6 +30,44 @@ from app.routers import chat
 def health_check():
     return {"status": "ok", "message": "HCP CRM Backend is running"}
 
+@app.get("/api/diagnose")
+def diagnose_connections():
+    import os
+    from app.database import SessionLocal
+    from sqlalchemy import text
+    from langchain_groq import ChatGroq
+
+    db_status = "unknown"
+    groq_status = "unknown"
+
+    # Test Database
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {type(e).__name__} - {str(e)}"
+
+    # Test Groq
+    try:
+        # Check API key presence
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            groq_status = "error: GROQ_API_KEY env var is not set"
+        else:
+            llm = ChatGroq(model_name="llama-3.1-8b-instant")
+            response = llm.invoke("say hello")
+            groq_status = f"ok: {response.content}"
+    except Exception as e:
+        groq_status = f"error: {type(e).__name__} - {str(e)}"
+
+    return {
+        "database": db_status,
+        "groq": groq_status,
+        "groq_api_key_length": len(api_key) if api_key else 0,
+        "database_url_length": len(os.getenv("DATABASE_URL")) if os.getenv("DATABASE_URL") else 0
+    }
+
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 
 # Serve static files from frontend/dist
