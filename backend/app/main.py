@@ -55,7 +55,10 @@ def diagnose_connections():
         if not api_key:
             groq_status = "error: GROQ_API_KEY env var is not set"
         else:
-            llm = ChatGroq(model_name="llama-3.1-8b-instant")
+            import httpx
+            transport = httpx.HTTPTransport(http2=False)
+            client = httpx.Client(transport=transport)
+            llm = ChatGroq(model_name="llama-3.1-8b-instant", http_client=client)
             response = llm.invoke("say hello")
             groq_status = f"ok: {response.content}"
     except Exception as e:
