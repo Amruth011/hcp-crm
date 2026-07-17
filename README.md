@@ -1,15 +1,22 @@
 # HCP CRM Interaction Assistant
 
-An AI-powered Customer Relationship Management (CRM) assistant built for pharmaceutical sales representatives to seamlessly log and manage interactions with Healthcare Professionals (HCPs). By leveraging state-of-the-art Large Language Models (LLMs) and structured extraction, the system automatically translates conversational user chat or voice transcripts into structured CRM records (handling multilingual inputs such as Kannada), performs compliance checks for off-label claims, suggests next actions based on past discussions, and retrieves interaction history with built-in doctor name disambiguation.
+An AI-powered Customer Relationship Management (CRM) assistant built for pharmaceutical sales representatives to seamlessly log and manage interactions with Healthcare Professionals (HCPs). By leveraging state-of-the-art Large Language Models (LLMs) and structured extraction, the system automatically translates conversational user chat or voice transcripts into structured CRM records, performs compliance checks for off-label claims, suggests next actions based on past discussions, and retrieves interaction history.
 
 ---
 
-## Architecture Diagram
+## 🚀 Live Deployment Links
+
+* **Frontend Web Application (CDN Hosted - Instantly Loaded)**: [https://hcp-crm-frontend-pgi9.onrender.com](https://hcp-crm-frontend-pgi9.onrender.com)
+* **Backend Web Service API**: [https://hcp-crm-backend-pts2.onrender.com](https://hcp-crm-backend-pts2.onrender.com)
+
+---
+
+## ⚙️ Architecture Diagram
 
 ```
 +-------------------------------------------------------------+
 |                       React / Redux UI                      |
-|                 (Port 5173 - App.jsx / Redux)               |
+|             (Port 5173 - App.jsx / Redux Store)             |
 +------------------------------+------------------------------+
                                |
                                | (HTTP POST / SSE Streaming)
@@ -36,151 +43,79 @@ An AI-powered Customer Relationship Management (CRM) assistant built for pharmac
 
 ---
 
-## Setup Steps
+## 🛠️ Key Technical Implementations & Fixes
 
-### 1. Prerequisites
-Ensure you have the following installed on your system:
-- **Node.js** (v18 or higher)
-- **Python** (v3.10 or higher)
-- A **Neon Postgres** database (or any PostgreSQL instance)
-- A **Groq API Key** (for Llama models)
+### 1. HTTP/2 Connection Error Resolution
+* **The Problem**: Groq Python SDK relies on `httpx` which defaults to HTTP/2 negotiation. In cloud environments like Render or behind proxy servers, HTTP/2 handshakes are frequently dropped, leading to `groq.APIConnectionError: Connection error.`.
+* **The Fix**: Configured the LangGraph engine to instantiate `ChatGroq` with a custom `httpx.Client` that explicitly disables HTTP/2 (`http2=False`), ensuring robust connection pool reuse and stability:
+  ```python
+  _http_client = httpx.Client(transport=httpx.HTTPTransport(http2=False))
+  ```
 
-### 2. Configure Environment Variables
-Create a file named `.env` in the project root directory and add your credentials:
+### 2. Environment Variable Sanitization
+* **The Problem**: Accidental trailing whitespace or newline characters (`\n`) copied into dashboard settings cause `LocalProtocolError: Illegal header value` when building the authorization headers.
+* **The Fix**: Implemented automatic string cleaning (`.strip()`) on startup for critical credentials (`GROQ_API_KEY`, `DATABASE_URL`) in both `main.py` and `database.py`.
+
+### 3. CORS Policy Whitelisting
+* **The Fix**: Configured the FastAPI CORS middleware origins to allow both the localhost addresses and the unique static CDN frontend domain: `https://hcp-crm-frontend-pgi9.onrender.com`.
+
+---
+
+## 🤖 The 5-Agent LangGraph Workflow
+
+The assistant consists of 5 specialized agents structured as LangGraph nodes:
+
+1. **`log_interaction` (Extraction Agent)**: Classifies and parses meeting transcripts to extract structured fields (HCP name, date, interaction type, attendees, topics discussed, sentiment, materials shared, samples distributed, outcomes, and follow-ups).
+2. **`edit_interaction` (Patching Agent)**: Targets specific corrections provided by the rep and merges them with the existing form state without modifying untouched fields.
+3. **`retrieve_interaction_history` (Context Continuity Agent)**: Queries Neon PostgreSQL for prior interaction records to summarize history. It triggers name disambiguation if a doctor's name is ambiguous (e.g., Cardiology vs. Neurology Dr. Smiths).
+4. **`check_compliance` (Risk Management Agent)**: Runs automatically after logging to evaluate notes for off-label claims or exaggerated efficacy, raising review flags and writing compliance rationales.
+5. **`suggest_next_action` (Recommendation Agent)**: Suggests follow-up steps based on sentiment, outcomes, and historical context.
+
+---
+
+## 💻 Local Setup Steps
+
+### 1. Configure Environment Variables
+Create a `.env` file in the root directory:
 ```env
-# PostgreSQL connection URI
 DATABASE_URL=postgresql://<username>:<password>@<host>/<database>?sslmode=require
-
-# Groq API Key
 GROQ_API_KEY=gsk_your_key_here
 ```
 
-### 3. Backend Setup
-Navigate to the `backend` folder, set up a virtual environment, install dependencies, run migrations, and seed HCP data:
+### 2. Backend Setup
+Navigate to the `backend` folder, install requirements, run migrations, and seed HCPs:
 ```bash
-# Go to backend
 cd backend
-
-# Create and activate virtual environment
 python -m venv .venv
-# On Windows PowerShell:
-.venv\Scripts\Activate.ps1
-# On Linux/macOS:
-source .venv/bin/activate
+.venv\Scripts\Activate.ps1   # Windows
+source .venv/bin/activate    # macOS/Linux
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Run migrations (Alembic)
 alembic upgrade head
-
-# Seed initial HCP data
 python scripts/seed_hcps.py
 ```
 
-### 4. Frontend Setup
-In a new terminal window, navigate to the `frontend` folder and install packages:
+### 3. Frontend Setup
+In a new terminal window:
 ```bash
 cd frontend
 npm install
 ```
 
-### 5. Running the Application
-Start both the backend FastAPI server and the Vite dev server.
-
-- **Start Backend** (from `backend` directory):
-  ```bash
-  .venv\Scripts\uvicorn.exe app.main:app --reload --port 8000
-  ```
-- **Start Frontend** (from `frontend` directory):
-  ```bash
-  npm run dev
-  ```
-
-Open your browser and navigate to `http://localhost:5173/` to use the application.
+### 4. Run Locally
+* **Backend**: `uvicorn app.main:app --reload --port 8000` (from `backend/` directory)
+* **Frontend**: `npm run dev` (from `frontend/` directory)
 
 ---
 
-## Programmatic Verification (Testing via cURL)
+## 🧪 Verification & Testing
 
-You can test each of the five functional agent nodes directly by sending HTTP POST requests to the `/api/chat` endpoint without opening a browser. 
-
-### 1. Verify `log_interaction`
-This tool parses user meeting descriptions and populates CRM form fields.
+### Isolated Script Testing
+Run test scripts to test each node separately:
 ```bash
-curl -X POST "http://localhost:8000/api/chat" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "message": "Today I met with Dr. Arun, discussed product X efficacy, sentiment was positive, and I shared brochures.",
-           "interaction_form": {},
-           "history": []
-         }'
+python scripts/test_log_interaction.py
+python scripts/test_edit_interaction.py
+python scripts/test_check_compliance.py
+python scripts/test_suggest_next_action.py
+python scripts/test_retrieve_history.py
 ```
-*Expected Output:* The JSON response will contain a `tool_trace` log indicating `log_interaction` has run, and the `interaction_form` will be populated with extracted values.
-
-### 2. Verify `edit_interaction`
-This tool handles user corrections by targeting and patching specific form fields.
-```bash
-curl -X POST "http://localhost:8000/api/chat" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "message": "Actually the date was yesterday and the sentiment was neutral.",
-           "interaction_form": {
-             "hcp_name": "Dr. John Smith",
-             "interaction_type": "meeting",
-             "date": "today",
-             "sentiment": "positive"
-           },
-           "history": []
-         }'
-```
-*Expected Output:* The `interaction_form` will be returned with `date` changed to "yesterday" and `sentiment` changed to "neutral", while keeping other fields intact.
-
-### 3. Verify `retrieve_interaction_history` (with ambiguous HCP names)
-This tool queries past records and triggers name disambiguation when multiple HCPs match.
-```bash
-curl -X POST "http://localhost:8000/api/chat" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "message": "What did we last discuss with Dr. Smith?",
-           "interaction_form": {},
-           "history": []
-         }'
-```
-*Expected Output:* The assistant responds with a clarifying prompt asking which specialty/HCP you meant (e.g. Cardiology or Dermatology), and lists candidate profiles in `active_hcp_candidates`.
-
-### 4. Verify `check_compliance`
-This tool triggers automatically after new interaction details are logged to identify regulatory risks.
-```bash
-curl -X POST "http://localhost:8000/api/chat" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "message": "Met Dr. Arun. I told the doctor that Product X completely cures all heart disease with zero side effects.",
-           "interaction_form": {},
-           "history": []
-         }'
-```
-*Expected Output:* The returned `interaction_form` will show `"compliance_flag": "review"` and a `"compliance_rationale"` explaining the off-label/exaggerated claim violation.
-
-### 5. Verify `suggest_next_action`
-This tool recommends follow-ups based on sentiment, outcomes, and past interactions.
-```bash
-curl -X POST "http://localhost:8000/api/chat" \
-     -H "Content-Type: application/json" \
-     -d '{
-           "message": "Met Dr. Arun. Efficacy discussed and he agreed to prescribe it next month.",
-           "interaction_form": {},
-           "history": []
-         }'
-```
-*Expected Output:* The form response will contain a list of recommended actions in `suggested_follow_ups` (e.g. following up in two weeks, sharing clinical trials).
-
----
-
-## Design Rationale
-
-While the core specification only required logging and editing features, the addition of three extra agents ensures that this system operates as a **production-grade enterprise solution**:
-
-*   **`check_compliance` (Risk Guardrails)**: Pharmaceutical representatives operate in a highly regulated domain. Inadvertently claiming exaggerated efficacy or promoting off-label usage is a major legal risk. Real-time compliance checking serves as an immediate safety guardrail for the sales team.
-*   **`suggest_next_action` (Proactive Sales Support)**: Sales representatives often log meetings rapidly between visits. Having the AI analyze outcomes to instantly recommend follow-up steps improves pipeline efficiency and rep productivity.
-*   **`retrieve_interaction_history` (Context Continuity)**: Reps rarely meet an HCP in a vacuum. Disambiguating doctor names and providing a summary of prior discussions before logging new ones ensures accurate, contextual updates.
